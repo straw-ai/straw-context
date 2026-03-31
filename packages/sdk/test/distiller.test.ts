@@ -100,6 +100,34 @@ describe('ContextDistiller', () => {
     })
   })
 
+  describe('Engine E: Date Formatter', () => {
+    it('converts ISO dates to relative time', () => {
+      const now = new Date()
+      const fiveDaysAgo = new Date(now.getTime() - 5 * 86400 * 1000).toISOString()
+      const data = { created: fiveDaysAgo }
+
+      const { contextString } = distill(data)
+      expect(contextString).toContain('created: 5 days ago')
+    })
+
+    it('handles future dates', () => {
+      const now = new Date()
+      const inTwoYears = new Date(now.getTime() + 2 * 31536000 * 1000).toISOString()
+      const data = { expires: inTwoYears }
+
+      const { contextString } = distill(data)
+      expect(contextString).toContain('expires: in 2 years')
+    })
+
+    it('respects relativeDates: false', () => {
+      const date = '2024-03-31T00:00:00Z'
+      const data = { date }
+
+      const { contextString } = distill(data, { relativeDates: false })
+      expect(contextString).toContain(`date: ${date}`)
+    })
+  })
+
   describe('Full Distillation', () => {
     it('calculates reduction statistics', () => {
       const data = {

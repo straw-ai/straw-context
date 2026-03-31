@@ -1,4 +1,4 @@
-import { scrub, truncate, aliasIdentifiers, formatToDMD } from './engines.js'
+import { scrub, truncate, aliasIdentifiers, formatToDMD, recursiveFormatDates } from './engines.js'
 import type { DistillOptions, DistillResult } from './types.js'
 
 export * from './types.js'
@@ -26,6 +26,11 @@ export class ContextDistiller {
     // 3. Truncator (Engine B) - Applied recursively to strings
     const maxLen = options.maxStringLength ?? 1000
     processed = this.recursiveTruncate(processed, maxLen)
+
+    // 3.5. Relative Dates (Engine E)
+    if (options.relativeDates !== false) {
+      processed = recursiveFormatDates(processed)
+    }
 
     // 4. Aliaser (Engine C)
     if (options.enableAliasing !== false) {

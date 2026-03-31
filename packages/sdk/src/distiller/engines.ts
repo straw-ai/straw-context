@@ -199,3 +199,55 @@ function formatAsTable(arr: any[], indent: number): string {
 
   return `\n${spacing}${header}\n${spacing}${separator}\n${spacing}${rows.join(`\n${spacing}`)}`
 }
+
+// --- Engine E: Relative Time Formatter ---
+
+const ISO_DATE_REGEX = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}(:?\d{2})?)$/
+
+export function formatRelativeTime(isoString: string): string {
+  const date = new Date(isoString)
+  if (isNaN(date.getTime())) return isoString
+
+  const now = new Date()
+  const diffInSeconds = Math.floor((now.getTime() - date.getTime()) / 1000)
+  const absDiff = Math.abs(diffInSeconds)
+  const isPast = diffInSeconds >= 0
+
+  const units = [
+    { label: 'year', seconds: 31536000 },
+    { label: 'month', seconds: 2592000 },
+    { label: 'week', seconds: 604800 },
+    { label: 'day', seconds: 86400 },
+    { label: 'hour', seconds: 3600 },
+    { label: 'minute', seconds: 60 },
+    { label: 'second', seconds: 1 },
+  ]
+
+  for (const unit of units) {
+    if (absDiff >= unit.seconds) {
+      const count = Math.floor(absDiff / unit.seconds)
+      const plural = count === 1 ? '' : 's'
+      const timeStr = `${count} ${unit.label}${plural}`
+      return isPast ? `${timeStr} ago` : `in ${timeStr}`
+    }
+  }
+
+  return 'just now'
+}
+
+export function recursiveFormatDates(node: any): any {
+  if (typeof node === 'string' && ISO_DATE_REGEX.test(node)) {
+    return formatRelativeTime(node)
+  }
+  if (Array.isArray(node)) {
+    return node.map((item) => recursiveFormatDates(item))
+  }
+  if (typeof node === 'object' && node !== null) {
+    const newObj: Record<string, any> = {}
+    for (const [k, v] of Object.entries(node)) {
+      newObj[k] = recursiveFormatDates(v)
+    }
+    return newObj
+  }
+  return node
+}
