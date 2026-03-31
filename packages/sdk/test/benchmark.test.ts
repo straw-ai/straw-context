@@ -1,6 +1,7 @@
-import { describe, it } from 'vitest'
 import { getEncoding } from 'js-tiktoken'
 import yaml from 'js-yaml'
+import { describe, it } from 'vitest'
+
 import { distill } from '../src/index.js'
 
 describe('Multi-Format Performance Comparison', () => {
@@ -44,21 +45,26 @@ describe('Multi-Format Performance Comparison', () => {
           name: `User ${i}`,
           role: i % 2 === 0 ? 'admin' : 'user',
           email: `user${i}@example.com`,
-          metadata: { login_count: i * 10, last_ip: '127.0.0.1' }
-        }))
+          metadata: { login_count: i * 10, last_ip: '127.0.0.1' },
+        })),
       },
-    }
+    },
   ]
 
   it('compares Raw vs YAML vs DMD (ContextDistiller)', () => {
     console.log('\n' + '='.repeat(100))
     console.log(
-      '| ' + 
-      'Dataset'.padEnd(30) + ' | ' + 
-      'Raw'.padStart(10) + ' | ' + 
-      'YAML'.padStart(10) + ' | ' + 
-      'DMD (Ours)'.padStart(10) + ' | ' + 
-      'Reduction %'.padStart(12) + ' |'
+      '| ' +
+        'Dataset'.padEnd(30) +
+        ' | ' +
+        'Raw'.padStart(10) +
+        ' | ' +
+        'YAML'.padStart(10) +
+        ' | ' +
+        'DMD (Ours)'.padStart(10) +
+        ' | ' +
+        'Reduction %'.padStart(12) +
+        ' |',
     )
     console.log('-'.repeat(100))
 
@@ -74,16 +80,21 @@ describe('Multi-Format Performance Comparison', () => {
       // 3. DMD (ContextDistiller)
       const { contextString } = distill(tc.data, { maxStringLength: 100 })
       const dmdTokens = enc.encode(contextString).length
-      
+
       const reductionPercent = ((1 - dmdTokens / rawTokens) * 100).toFixed(1)
 
       console.log(
-        '| ' + 
-        tc.name.padEnd(30) + ' | ' + 
-        String(rawTokens).padStart(10) + ' | ' + 
-        String(yamlTokens).padStart(10) + ' | ' + 
-        String(dmdTokens).padStart(10) + ' | ' + 
-        `${reductionPercent}%`.padStart(12) + ' |'
+        '| ' +
+          tc.name.padEnd(30) +
+          ' | ' +
+          String(rawTokens).padStart(10) +
+          ' | ' +
+          String(yamlTokens).padStart(10) +
+          ' | ' +
+          String(dmdTokens).padStart(10) +
+          ' | ' +
+          `${reductionPercent}%`.padStart(12) +
+          ' |',
       )
     }
     console.log('='.repeat(100) + '\n')

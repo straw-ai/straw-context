@@ -16,21 +16,40 @@ const UNIVERSAL_NOISE_KEYS = new Set([
   'url',
 ])
 
+function globToRegex(pattern: string): RegExp {
+  const escaped = pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&')
+  const regexStr = escaped.replace(/\*/g, '.*')
+  return new RegExp(`^${regexStr}$`)
+}
+
 export function scrub(input: any, options: ScrubberOptions = {}): any {
-  const dropKeys = new Set(options.dropKeys || [])
-  const preserveKeys = new Set(options.preserveKeys || [])
+  const allDropKeys = options.dropKeys || []
+  const allPreserveKeys = options.preserveKeys || []
+
+  // Pre-process patterns
+  const dropPatterns = allDropKeys.filter((k) => k.includes('*')).map(globToRegex)
+  const dropLiterals = new Set(allDropKeys.filter((k) => !k.includes('*')))
+
+  const preservePatterns = allPreserveKeys.filter((k) => k.includes('*')).map(globToRegex)
+  const preserveLiterals = new Set(allPreserveKeys.filter((k) => !k.includes('*')))
+
   const pruneEmptyArrays = options.pruneEmptyArrays ?? false
 
-  // 1. Fail Fast: Validate Conflicts
-  for (const key of dropKeys) {
-    if (preserveKeys.has(key)) {
+  // 1. Fail Fast: Validate Conflicts (Literals)
+  for (const key of dropLiterals) {
+    if (preserveLiterals.has(key)) {
       throw new DistillError(
         `Configuration Conflict: Key '${key}' appears in both dropKeys and preserveKeys.`,
       )
     }
   }
 
-  // 2. Fail Fast: Validate Input
+  const isPreserved = (key: string) =>
+    preserveLiterals.has(key) || preservePatterns.some((re) => re.test(key))
+  const isDropped = (key: string) =>
+    dropLiterals.has(key) || dropPatterns.some((re) => re.test(key))
+
+  // 1. Fail Fast: Validate Input
   if (input === null || typeof input !== 'object') {
     throw new DistillError(
       `Input must be a valid JSON Object or Array. Received: ${input === null ? 'null' : typeof input}`,
@@ -62,21 +81,25 @@ export function scrub(input: any, options: ScrubberOptions = {}): any {
     let hasKeys = false
 
     for (const [key, value] of Object.entries(node)) {
-      if (dropKeys.has(key)) continue
-      if (UNIVERSAL_NOISE_KEYS.has(key) && !preserveKeys.has(key)) continue
+      if (isPreserved(key)) {
+        cleanedObj[key] = value
+        hasKeys = true
+        continue
+      }
 
-      const isPreserved = preserveKeys.has(key)
-      const cleanedValue = isPreserved ? value : walk(value, visited)
+      if (isDropped(key)) continue
+      if (UNIVERSAL_NOISE_KEYS.has(key)) continue
 
-      if (!isPreserved) {
-        if (cleanedValue === undefined) continue
-        if (
-          typeof cleanedValue === 'object' &&
-          !Array.isArray(cleanedValue) &&
-          Object.keys(cleanedValue).length === 0
-        ) {
-          continue
-        }
+      const cleanedValue = walk(value, visited)
+
+      if (cleanedValue === undefined) continue
+      if (
+        cleanedValue !== null &&
+        typeof cleanedValue === 'object' &&
+        !Array.isArray(cleanedValue) &&
+        Object.keys(cleanedValue).length === 0
+      ) {
+        continue
       }
 
       cleanedObj[key] = cleanedValue

@@ -1,7 +1,7 @@
 export interface ScrubberOptions {
-  /** Keys to completely remove from the payload */
+  /** Keys to completely remove from the payload. Supports wildcards (e.g. '*_id', 'internal_*'). */
   dropKeys?: string[]
-  /** Keys to protect from truncation or dropping, even if empty/null */
+  /** Keys to protect from truncation or dropping, even if empty/null. Supports wildcards. */
   preserveKeys?: string[]
   /** Default: false ([] has semantic meaning) */
   pruneEmptyArrays?: boolean

@@ -41,6 +41,33 @@ describe('ContextDistiller', () => {
       expect(distill(raw).contextString).toBe('data: []')
       expect(distill(raw, { pruneEmptyArrays: true }).contextString).toBe('')
     })
+
+    it('supports wildcard pattern matching in dropKeys', () => {
+      const raw = {
+        user_id: 1,
+        project_id: 2,
+        internal_secret: 'keep out',
+        external_data: 'ok',
+      }
+
+      const { contextString } = distill(raw, { dropKeys: ['*_id', 'internal_*'] })
+      expect(contextString).not.toContain('user_id')
+      expect(contextString).not.toContain('project_id')
+      expect(contextString).not.toContain('secret')
+      expect(contextString).toContain('external_data: ok')
+    })
+
+    it('supports wildcard pattern matching in preserveKeys', () => {
+      const raw = {
+        __typename: 'Noise',
+        important_metadata: 'keep',
+      }
+
+      // __typename is normally dropped by UNIVERSAL_NOISE_KEYS
+      const { contextString } = distill(raw, { preserveKeys: ['__type*', 'important_*'] })
+      expect(contextString).toContain('__typename: Noise')
+      expect(contextString).toContain('important_metadata: keep')
+    })
   })
 
   describe('Engine B: Truncator', () => {
