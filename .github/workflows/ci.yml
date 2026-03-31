@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    name: Build and Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repo
+        uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.25.0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "pnpm"
+
+      - name: Install Dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm turbo run lint
+
+      - name: Format
+        run: pnpm turbo run format:check
+
+      - name: Build
+        run: pnpm turbo run build
+
+      - name: Spellcheck
+        run: pnpm turbo run spellcheck
+
+      - name: Test
+        run: pnpm turbo run test
+
+      - name: Check for changesets
+        if: github.event_name == 'pull_request'
+        run: pnpm changeset status

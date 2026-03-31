@@ -1,0 +1,27 @@
+{
+  "version": "0.2",
+  "language": "en",
+  "words": [
+    "strawai",
+    "tsup",
+    "vitest",
+    "oxlint",
+    "pnpm",
+    "nodenext",
+    "esnext",
+    "monorepo",
+    "changeset",
+    "changesets",
+    "husky"
+  ],
+  "ignorePaths": [
+    "node_modules",
+    "dist",
+    "build",
+    ".next",
+    ".git",
+    "pnpm-lock.yaml",
+    ".changeset/*.md",
+    "package.json"
+  ]
+}

@@ -1,0 +1,38 @@
+{
+  "name": "straw-monorepo",
+  "version": "0.0.1",
+  "private": true,
+  "description": "",
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev",
+    "lint": "turbo run lint",
+    "test": "turbo run test",
+    "format": "oxfmt --write .",
+    "format:check": "oxfmt --check .",
+    "changeset": "changeset",
+    "commit": "cz",
+    "version-packages": "changeset version",
+    "release": "pnpm build && pnpm test && changeset publish",
+    "spellcheck": "cspell \"**\"",
+    "prepare": "husky"
+  },
+  "devDependencies": {
+    "@changesets/cli": "^2.30.0",
+    "@commitlint/cli": "^20.5.0",
+    "@commitlint/config-conventional": "^20.5.0",
+    "commitizen": "^4.3.1",
+    "cspell": "^9.7.0",
+    "cz-conventional-changelog": "^3.3.0",
+    "husky": "^9.1.7",
+    "oxfmt": "^0.42.0",
+    "turbo": "^2.1.2",
+    "vitest": "^4.1.2"
+  },
+  "config": {
+    "commitizen": {
+      "path": "./node_modules/cz-conventional-changelog"
+    }
+  },
+  "packageManager": "pnpm@10.25.0"
+}
