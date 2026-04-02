@@ -26,11 +26,11 @@ function globToRegex(pattern: string): RegExp {
   return new RegExp(`^${regexStr}$`)
 }
 
-export function formatRelativeTime(isoString: string): string {
+export function formatRelativeTime(isoString: string, anchor?: Date): string {
   const date = new Date(isoString)
   if (isNaN(date.getTime())) return isoString
 
-  const now = new Date()
+  const now = anchor ?? new Date()
   const diffInMs = date.getTime() - now.getTime()
   const absDiff = Math.abs(diffInMs)
 
@@ -54,7 +54,7 @@ export function formatRelativeTime(isoString: string): string {
 // --- THE UNIFIED PIPELINE ---
 export function distillPayload(
   input: any,
-  options: ScrubberOptions & { relativeDates?: boolean; aliasIds?: boolean },
+  options: ScrubberOptions & { relativeDates?: boolean; aliasIds?: boolean; dateAnchor?: Date },
   reverseMap: Map<string, string>,
 ): any {
   const allDropKeys = options.dropKeys || []
@@ -92,7 +92,7 @@ export function distillPayload(
       let finalStr = node
       // Engine E: Date formatting
       if (options.relativeDates !== false && ISO_DATE_REGEX.test(finalStr)) {
-        finalStr = formatRelativeTime(finalStr)
+        finalStr = formatRelativeTime(finalStr, options.dateAnchor)
       }
       // Engine C: Aliasing
       if (options.aliasIds !== false) {

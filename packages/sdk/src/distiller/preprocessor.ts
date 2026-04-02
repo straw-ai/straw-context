@@ -1,4 +1,4 @@
-import { DistillError } from './types.js'
+import { DistillError, type DedupeOptions } from './types.js'
 
 export type InputType = 'structured' | 'unstructured'
 
@@ -32,11 +32,17 @@ export function tryParseJSON(input: string): any | null {
 /**
  * Heuristic Line Deduplication
  * If multiple consecutive lines share a common prefix (e.g. log levels),
- * it keeps the first 2, the last 2, and summarizes the middle.
+ * it keeps the start and end context, and summarizes the middle.
  */
-export function deduplicateLines(text: string): string {
+export function deduplicateLines(text: string, options?: DedupeOptions): string {
+  if (options?.enabled === false) return text
+
+  const threshold = options?.threshold ?? 5
+  const prefixLength = options?.prefixLength ?? 15
+  const contextBuffer = options?.contextBuffer ?? 2
+
   const lines = text.split('\n')
-  if (lines.length <= 10) return text // Too short to deduplicate safely
+  if (lines.length <= contextBuffer * 2) return text // Too short to deduplicate safely
 
   const processed: string[] = []
   let i = 0
@@ -49,13 +55,13 @@ export function deduplicateLines(text: string): string {
       continue
     }
 
-    // Heuristic: Check if next lines share the same prefix (first 15 chars)
+    // Heuristic: Check if next lines share the same prefix
     const firstLine = lines[i]
     if (firstLine === undefined) {
       i++
       continue
     }
-    const prefix = firstLine.slice(0, 15)
+    const prefix = firstLine.slice(0, prefixLength)
     let j = i + 1
     while (j < lines.length) {
       const line = lines[j]
@@ -67,13 +73,21 @@ export function deduplicateLines(text: string): string {
     }
 
     const count = j - i
-    if (count > 5) {
+    if (count > threshold) {
       // Repetitive block found
-      processed.push(lines[i]!)
-      processed.push(lines[i + 1]!)
-      processed.push(`...[${count - 4} lines with prefix "${prefix.trim()}" deduplicated]...`)
-      processed.push(lines[j - 2]!)
-      processed.push(lines[j - 1]!)
+      for (let k = 0; k < contextBuffer; k++) {
+        const line = lines[i + k]
+        if (line !== undefined) processed.push(line)
+      }
+
+      processed.push(
+        `...[${count - contextBuffer * 2} lines with prefix "${prefix.trim()}" deduplicated]...`,
+      )
+
+      for (let k = contextBuffer; k > 0; k--) {
+        const line = lines[j - k]
+        if (line !== undefined) processed.push(line)
+      }
       i = j
     } else {
       processed.push(currentLine!)

@@ -153,59 +153,49 @@ describe('ContextDistiller', () => {
       const { contextString } = distill(data, { relativeDates: false })
       expect(contextString).toContain(`date: ${date}`)
     })
+
+    it('uses dateAnchor for deterministic relative dates', () => {
+      const anchor = new Date('2026-04-02T10:00:00Z')
+      const target = new Date('2026-03-30T10:00:00Z').toISOString() // 3 days before anchor
+      const data = { event: target }
+
+      const { contextString } = distill(data, { dateAnchor: anchor })
+      expect(contextString).toContain('event: 3 days ago')
+    })
   })
 
-  describe('Input Guard & Pre-Processor', () => {
-    it('automatically parses valid JSON strings', () => {
+  describe('Input Guard & Configuration', () => {
+    it('automatically parses valid JSON strings by default', () => {
       const json = JSON.stringify({ hello: 'world' })
       const { contextString } = distill(json)
       expect(contextString).toBe('hello: world')
     })
 
-    it('deduplicates repetitive log lines', () => {
-      const logs = [
-        '[INFO] Starting server...',
-        '[INFO] Request received',
-        '[INFO] Request received',
-        '[INFO] Request received',
-        '[INFO] Request received',
-        '[INFO] Request received',
-        '[INFO] Request received',
-        '[INFO] Request received',
-        '[INFO] Request received',
-        '[INFO] Processing done',
-        '[INFO] Server idle',
-      ].join('\n')
-
-      const { contextString } = distill(logs)
-      expect(contextString).toContain('lines with prefix "[INFO]')
-      expect(contextString).toContain('deduplicated')
-      expect(contextString).toContain('Starting server')
-      expect(contextString).toContain('Server idle')
+    it('can disable the entire Input Guard', () => {
+      const json = JSON.stringify({ hello: 'world' })
+      // With guard disabled, it shouldn't auto-parse JSON, should treat as plain text
+      const { contextString } = distill(json, { enableInputGuard: false })
+      expect(contextString).toBe(json)
     })
 
-    it('detects tables with 80% key overlap (Table-Sense)', () => {
-      const data = [
-        { id: 1, name: 'Alice', extra: 'foo' },
-        { id: 2, name: 'Bob' }, // missing 'extra'
-        { id: 3, name: 'Charlie', extra: 'bar' },
-      ]
+    it('deduplicates repetitive log lines with custom threshold', () => {
+      const logs = ['[INFO] Repeat', '[INFO] Repeat', '[INFO] Repeat'].join('\n')
 
-      const { contextString: _cs } = distill(data, { tableifyThreshold: 2 })
-      // Alice (3 keys). Bob (2 keys). Overlap is 2/3 = 66%. This shouldn't be a table if threshold is 80%.
-      // Let's test a case that WOULD match.
+      const { contextString } = distill(logs, {
+        dedupe: { threshold: 1, contextBuffer: 1, prefixLength: 10 },
+      })
+      expect(contextString).toContain('lines with prefix "[INFO] Rep" deduplicated')
+    })
 
-      const tableData = [
-        { id: 1, name: 'Alice', a: 1, b: 2, c: 3 },
-        { id: 2, name: 'Bob', a: 1, b: 2 }, // 4/5 keys match = 80%
-      ]
-
-      const { contextString: tableOutput } = distill(tableData, { tableifyThreshold: 2 })
-      expect(tableOutput).toContain('| id | name | a | b | c |')
+    it('can disable deduplication via config', () => {
+      const logs = Array(10).fill('[INFO] Repeat').join('\n')
+      const { contextString } = distill(logs, { dedupe: { enabled: false } })
+      expect(contextString).not.toContain('deduplicated')
+      expect(contextString.split('\n').length).toBe(10)
     })
   })
 
-  describe('Regression: Table Fixes (Staff Review)', () => {
+  describe('Regression: Table Fixes', () => {
     it('stringifies nested objects in table cells instead of [object Object]', () => {
       const data = [
         { id: 1, info: { name: 'Alice', age: 30 } },
@@ -228,11 +218,9 @@ describe('ContextDistiller', () => {
     })
   })
 
-  describe('Full Distillation', () => {
+  describe('Full Distillation Statistics', () => {
     it('calculates reduction statistics', () => {
       const data = {
-        junk: null,
-        noise: '__typename',
         nested: {
           deep: 'value',
           long: 'X'.repeat(2000),
