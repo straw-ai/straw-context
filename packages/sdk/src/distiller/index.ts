@@ -1,41 +1,70 @@
-import { scrub, truncate, aliasIdentifiers, formatToDMD, recursiveFormatDates } from './engines.js'
+import { distillPayload, truncate, formatToDMD } from './engines.js'
+import { identifyInput, tryParseJSON, deduplicateLines } from './preprocessor.js'
 import type { DistillOptions, DistillResult } from './types.js'
 
 export * from './types.js'
 
 export class ContextDistiller {
   static distill(input: any, options: DistillOptions = {}): DistillResult {
-    const startTime = Date.now()
+    const start = Date.now()
     const reverseMap = new Map<string, string>()
 
-    // 1. Initial Statistics (Original)
+    // 1. Input Guard: Identify and Normalize
+    let inputType = identifyInput(input)
+    let processed = input
+
+    // If string is JSON, switch to structured pipeline
+    if (inputType === 'unstructured') {
+      const parsed = tryParseJSON(input as string)
+      if (parsed) {
+        processed = parsed
+        inputType = 'structured'
+      }
+    }
+
+    if (inputType === 'unstructured') {
+      // --- Unstructured Pipeline (Logs / Plain Text) ---
+      let text = processed as string
+      text = deduplicateLines(text)
+      text = truncate(text, options.maxStringLength ?? 5000)
+
+      return {
+        contextString: text,
+        reverseMap,
+        stats: {
+          originalTokens: ContextDistiller.estimateTokens(input as string),
+          distilledTokens: ContextDistiller.estimateTokens(text),
+          reductionPercent:
+            1 -
+            ContextDistiller.estimateTokens(text) /
+              ContextDistiller.estimateTokens(input as string),
+          durationMs: Date.now() - start,
+        },
+      }
+    }
+
+    // 2. Initial Statistics (Original Tokens)
     let originalTokens = 0
     try {
-      const originalString = JSON.stringify(input)
+      const originalString = JSON.stringify(processed)
       originalTokens = this.estimateTokens(originalString)
     } catch {
-      // If circular, we'll catch it in the scrubber later.
-      // For now, estimate based on keys/recursion if we really needed to,
-      // but let's just use 0 or a fallback.
-      originalTokens = 0
+      originalTokens = this.estimateTokens(String(processed))
     }
 
-    // 2. Scrubber (Engine A)
-    let processed = scrub(input, options)
+    // 3. Unified Distillation Pass (Scrub + Date + Alias)
+    processed = distillPayload(
+      processed,
+      {
+        ...options,
+        aliasIds: options.enableAliasing !== false,
+      },
+      reverseMap,
+    )
 
-    // 3. Truncator (Engine B) - Applied recursively to strings
+    // 4. Truncator (Engine B) - Applied recursively to strings
     const maxLen = options.maxStringLength ?? 1000
     processed = this.recursiveTruncate(processed, maxLen)
-
-    // 3.5. Relative Dates (Engine E)
-    if (options.relativeDates !== false) {
-      processed = recursiveFormatDates(processed)
-    }
-
-    // 4. Aliaser (Engine C)
-    if (options.enableAliasing !== false) {
-      processed = aliasIdentifiers(processed, reverseMap)
-    }
 
     // 5. Formatter (Engine D)
     const contextString = formatToDMD(processed, {
@@ -43,10 +72,8 @@ export class ContextDistiller {
       tableifyThreshold: options.tableifyThreshold ?? 3,
     })
 
-    // 6. Final Statistics
+    // 8. Final Statistics
     const distilledTokens = this.estimateTokens(contextString)
-    const reductionPercent =
-      originalTokens > 0 ? Number(((1 - distilledTokens / originalTokens) * 100).toFixed(1)) : 0
 
     return {
       contextString,
@@ -54,8 +81,8 @@ export class ContextDistiller {
       stats: {
         originalTokens,
         distilledTokens,
-        reductionPercent,
-        durationMs: Date.now() - startTime,
+        reductionPercent: originalTokens > 0 ? 1 - distilledTokens / originalTokens : 0,
+        durationMs: Date.now() - start,
       },
     }
   }

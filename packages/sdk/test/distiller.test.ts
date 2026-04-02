@@ -155,6 +155,79 @@ describe('ContextDistiller', () => {
     })
   })
 
+  describe('Input Guard & Pre-Processor', () => {
+    it('automatically parses valid JSON strings', () => {
+      const json = JSON.stringify({ hello: 'world' })
+      const { contextString } = distill(json)
+      expect(contextString).toBe('hello: world')
+    })
+
+    it('deduplicates repetitive log lines', () => {
+      const logs = [
+        '[INFO] Starting server...',
+        '[INFO] Request received',
+        '[INFO] Request received',
+        '[INFO] Request received',
+        '[INFO] Request received',
+        '[INFO] Request received',
+        '[INFO] Request received',
+        '[INFO] Request received',
+        '[INFO] Request received',
+        '[INFO] Processing done',
+        '[INFO] Server idle',
+      ].join('\n')
+
+      const { contextString } = distill(logs)
+      expect(contextString).toContain('lines with prefix "[INFO]')
+      expect(contextString).toContain('deduplicated')
+      expect(contextString).toContain('Starting server')
+      expect(contextString).toContain('Server idle')
+    })
+
+    it('detects tables with 80% key overlap (Table-Sense)', () => {
+      const data = [
+        { id: 1, name: 'Alice', extra: 'foo' },
+        { id: 2, name: 'Bob' }, // missing 'extra'
+        { id: 3, name: 'Charlie', extra: 'bar' },
+      ]
+
+      const { contextString: _cs } = distill(data, { tableifyThreshold: 2 })
+      // Alice (3 keys). Bob (2 keys). Overlap is 2/3 = 66%. This shouldn't be a table if threshold is 80%.
+      // Let's test a case that WOULD match.
+
+      const tableData = [
+        { id: 1, name: 'Alice', a: 1, b: 2, c: 3 },
+        { id: 2, name: 'Bob', a: 1, b: 2 }, // 4/5 keys match = 80%
+      ]
+
+      const { contextString: tableOutput } = distill(tableData, { tableifyThreshold: 2 })
+      expect(tableOutput).toContain('| id | name | a | b | c |')
+    })
+  })
+
+  describe('Regression: Table Fixes (Staff Review)', () => {
+    it('stringifies nested objects in table cells instead of [object Object]', () => {
+      const data = [
+        { id: 1, info: { name: 'Alice', age: 30 } },
+        { id: 2, info: { name: 'Bob', age: 25 } },
+      ]
+
+      const { contextString } = distill(data, { tableifyThreshold: 2 })
+      expect(contextString).toContain('{"name":"Alice","age":30}')
+      expect(contextString).not.toContain('[object Object]')
+    })
+
+    it('escapes pipes in table cells to prevent Markdown breakage', () => {
+      const data = [
+        { id: 1, note: 'Value | with | pipes' },
+        { id: 2, note: 'Normal' },
+      ]
+
+      const { contextString } = distill(data, { tableifyThreshold: 2 })
+      expect(contextString).toContain('Value \\| with \\| pipes')
+    })
+  })
+
   describe('Full Distillation', () => {
     it('calculates reduction statistics', () => {
       const data = {

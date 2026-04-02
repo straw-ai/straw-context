@@ -16,26 +16,65 @@ const UNIVERSAL_NOISE_KEYS = new Set([
   'url',
 ])
 
+const ISO_DATE_REGEX = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}(:?\d{2})?)$/
+const ID_REGEX =
+  /\b([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}|[a-f0-9]{40}|[a-f0-9]{64}|[a-f0-9]{128})\b/gi
+
 function globToRegex(pattern: string): RegExp {
   const escaped = pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&')
   const regexStr = escaped.replace(/\*/g, '.*')
   return new RegExp(`^${regexStr}$`)
 }
 
-export function scrub(input: any, options: ScrubberOptions = {}): any {
+export function formatRelativeTime(isoString: string): string {
+  const date = new Date(isoString)
+  if (isNaN(date.getTime())) return isoString
+
+  const now = new Date()
+  const diffInMs = date.getTime() - now.getTime()
+  const absDiff = Math.abs(diffInMs)
+
+  const seconds = Math.floor(absDiff / 1000)
+  const minutes = Math.floor(seconds / 60)
+  const hours = Math.floor(minutes / 60)
+  const days = Math.floor(hours / 24)
+  const months = Math.floor(days / 30)
+  const years = Math.floor(days / 365)
+
+  const formatter = new Intl.RelativeTimeFormat('en', { numeric: 'auto', style: 'long' })
+
+  if (years > 0) return formatter.format(Math.sign(diffInMs) * years, 'year')
+  if (months > 0) return formatter.format(Math.sign(diffInMs) * months, 'month')
+  if (days > 0) return formatter.format(Math.sign(diffInMs) * days, 'day')
+  if (hours > 0) return formatter.format(Math.sign(diffInMs) * hours, 'hour')
+  if (minutes > 0) return formatter.format(Math.sign(diffInMs) * minutes, 'minute')
+  return formatter.format(Math.sign(diffInMs) * seconds, 'second')
+}
+
+// --- THE UNIFIED PIPELINE ---
+export function distillPayload(
+  input: any,
+  options: ScrubberOptions & { relativeDates?: boolean; aliasIds?: boolean },
+  reverseMap: Map<string, string>,
+): any {
   const allDropKeys = options.dropKeys || []
   const allPreserveKeys = options.preserveKeys || []
 
-  // Pre-process patterns
   const dropPatterns = allDropKeys.filter((k) => k.includes('*')).map(globToRegex)
   const dropLiterals = new Set(allDropKeys.filter((k) => !k.includes('*')))
 
   const preservePatterns = allPreserveKeys.filter((k) => k.includes('*')).map(globToRegex)
   const preserveLiterals = new Set(allPreserveKeys.filter((k) => !k.includes('*')))
 
-  const pruneEmptyArrays = options.pruneEmptyArrays ?? false
+  let idCounter = 0
+  const forwardMap = new Map<string, string>()
 
-  // 1. Fail Fast: Validate Conflicts (Literals)
+  const isPreserved = (key: string) =>
+    preserveLiterals.has(key) || preservePatterns.some((re) => re.test(key))
+  const isDropped = (key: string) =>
+    dropLiterals.has(key) || dropPatterns.some((re) => re.test(key))
+
+  // 1. Validate Conflicts (Literals)
   for (const key of dropLiterals) {
     if (preserveLiterals.has(key)) {
       throw new DistillError(
@@ -44,35 +83,40 @@ export function scrub(input: any, options: ScrubberOptions = {}): any {
     }
   }
 
-  const isPreserved = (key: string) =>
-    preserveLiterals.has(key) || preservePatterns.some((re) => re.test(key))
-  const isDropped = (key: string) =>
-    dropLiterals.has(key) || dropPatterns.some((re) => re.test(key))
-
-  // 1. Fail Fast: Validate Input
-  if (input === null || typeof input !== 'object') {
-    throw new DistillError(
-      `Input must be a valid JSON Object or Array. Received: ${input === null ? 'null' : typeof input}`,
-    )
-  }
-
-  // 3. The Walker Engine
+  // THE SINGLE PASS WALKER (Scrub + Date + Alias)
   function walk(node: any, visited = new WeakSet()): any {
+    // 1. Primitives & Transforms
     if (node === null || node === undefined || node === '') return undefined
+
+    if (typeof node === 'string') {
+      let finalStr = node
+      // Engine E: Date formatting
+      if (options.relativeDates !== false && ISO_DATE_REGEX.test(finalStr)) {
+        finalStr = formatRelativeTime(finalStr)
+      }
+      // Engine C: Aliasing
+      if (options.aliasIds !== false) {
+        finalStr = finalStr.replace(ID_REGEX, (match) => {
+          if (forwardMap.has(match)) return forwardMap.get(match)!
+          const alias = `$ID_${idCounter++}`
+          forwardMap.set(match, alias)
+          reverseMap.set(alias, match)
+          return alias
+        })
+      }
+      return finalStr
+    }
+
     if (typeof node !== 'object') return node
 
-    if (visited.has(node)) {
-      throw new DistillError('Circular reference detected. Input must be serializable JSON.')
-    }
+    // 2. Objects & Arrays
+    if (visited.has(node)) throw new DistillError('Circular reference detected.')
     visited.add(node)
 
     if (Array.isArray(node)) {
-      const cleanedArray = node
-        .map((item) => walk(item, visited))
-        .filter((item) => item !== undefined)
-
-      if (cleanedArray.length === 0 && pruneEmptyArrays) {
-        return undefined
+      const cleanedArray = node.map((item) => walk(item, visited)).filter((v) => v !== undefined)
+      if (cleanedArray.length === 0) {
+        return options.pruneEmptyArrays ? undefined : []
       }
       return cleanedArray
     }
@@ -82,17 +126,17 @@ export function scrub(input: any, options: ScrubberOptions = {}): any {
 
     for (const [key, value] of Object.entries(node)) {
       if (isPreserved(key)) {
-        cleanedObj[key] = value
+        cleanedObj[key] = walk(value, visited) // Always walk to format primitives
         hasKeys = true
         continue
       }
 
-      if (isDropped(key)) continue
-      if (UNIVERSAL_NOISE_KEYS.has(key)) continue
+      if (isDropped(key) || UNIVERSAL_NOISE_KEYS.has(key)) continue
 
       const cleanedValue = walk(value, visited)
-
       if (cleanedValue === undefined) continue
+
+      // Engine A: Drop empty objects
       if (
         cleanedValue !== null &&
         typeof cleanedValue === 'object' &&
@@ -125,43 +169,6 @@ export function truncate(text: string, maxLength: number): string {
   const end = text.slice(-keepChars)
 
   return `${start}...[${truncatedCount.toLocaleString()} chars truncated]...${end}`
-}
-
-// --- Engine C: The Cryptographic Aliaser ---
-
-const ID_REGEX =
-  /\b([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}|[a-f0-9]{40}|[a-f0-9]{64}|[a-f0-9]{128})\b/gi
-
-export function aliasIdentifiers(input: any, reverseMap: Map<string, string>): any {
-  const forwardMap = new Map<string, string>()
-  let idCounter = 0
-
-  function processValue(val: any): any {
-    if (typeof val === 'string') {
-      return val.replace(ID_REGEX, (match) => {
-        if (forwardMap.has(match)) {
-          return forwardMap.get(match)!
-        }
-        const alias = `$ID_${idCounter++}`
-        forwardMap.set(match, alias)
-        reverseMap.set(alias, match)
-        return alias
-      })
-    }
-    if (val && typeof val === 'object') {
-      if (Array.isArray(val)) {
-        return val.map(processValue)
-      }
-      const newObj: Record<string, any> = {}
-      for (const [k, v] of Object.entries(val)) {
-        newObj[k] = processValue(v)
-      }
-      return newObj
-    }
-    return val
-  }
-
-  return processValue(input)
 }
 
 // --- Engine D: DMD (Dense Markdown Data) Formatter ---
@@ -201,76 +208,52 @@ export function formatToDMD(
 }
 
 function isArrayOfSimilarObjects(arr: any[]): boolean {
-  if (arr.length === 0) return false
-  const first = arr[0]
-  if (typeof first !== 'object' || first === null || Array.isArray(first)) return false
+  if (arr.length < 2) return false
+  const sample = arr.slice(0, 3)
 
-  const firstKeys = Object.keys(first).sort().join(',')
-  return arr.every((item) => {
-    if (typeof item !== 'object' || item === null || Array.isArray(item)) return false
-    return Object.keys(item).sort().join(',') === firstKeys
-  })
+  // Ensure all sampled items are non-null objects
+  if (sample.some((s) => typeof s !== 'object' || s === null || Array.isArray(s))) {
+    return false
+  }
+
+  const keysSet = sample.map((s) => new Set(Object.keys(s)))
+  const firstKeys = Object.keys(sample[0])
+
+  // Heuristic: Check for 80% key overlap between first item and subsequent samples
+  for (let i = 1; i < sample.length; i++) {
+    const currentKeys = keysSet[i]
+    if (!currentKeys) continue
+
+    let overlapCount = 0
+    for (const key of firstKeys) {
+      if (currentKeys.has(key)) overlapCount++
+    }
+
+    const overlap = overlapCount / Math.max(firstKeys.length, 1)
+    if (overlap < 0.8) return false
+  }
+
+  return true
 }
 
 function formatAsTable(arr: any[], indent: number): string {
-  const keys = Object.keys(arr[0])
+  // Collect ALL unique keys from the first 3 items to form headers
+  const sample = arr.slice(0, 3)
+  const allKeys = Array.from(new Set(sample.flatMap((s) => Object.keys(s))))
   const spacing = '  '.repeat(indent)
 
-  const header = `| ${keys.join(' | ')} |`
-  const separator = `| ${keys.map(() => '---').join(' | ')} |`
-  const rows = arr.map((item) => `| ${keys.map((k) => String(item[k])).join(' | ')} |`)
+  const header = `| ${allKeys.join(' | ')} |`
+  const separator = `| ${allKeys.map(() => '---').join(' | ')} |`
+  const rows = arr.map((item) => {
+    const values = allKeys.map((k) => {
+      const val = item[k]
+      if (val === undefined || val === null) return ''
+      // Fix: Escape pipes to prevent breaking table structure
+      const strVal = typeof val === 'object' ? JSON.stringify(val) : String(val)
+      return strVal.replace(/\|/g, '\\|')
+    })
+    return `| ${values.join(' | ')} |`
+  })
 
   return `\n${spacing}${header}\n${spacing}${separator}\n${spacing}${rows.join(`\n${spacing}`)}`
-}
-
-// --- Engine E: Relative Time Formatter ---
-
-const ISO_DATE_REGEX = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}(:?\d{2})?)$/
-
-export function formatRelativeTime(isoString: string): string {
-  const date = new Date(isoString)
-  if (isNaN(date.getTime())) return isoString
-
-  const now = new Date()
-  const diffInSeconds = Math.floor((now.getTime() - date.getTime()) / 1000)
-  const absDiff = Math.abs(diffInSeconds)
-  const isPast = diffInSeconds >= 0
-
-  const units = [
-    { label: 'year', seconds: 31536000 },
-    { label: 'month', seconds: 2592000 },
-    { label: 'week', seconds: 604800 },
-    { label: 'day', seconds: 86400 },
-    { label: 'hour', seconds: 3600 },
-    { label: 'minute', seconds: 60 },
-    { label: 'second', seconds: 1 },
-  ]
-
-  for (const unit of units) {
-    if (absDiff >= unit.seconds) {
-      const count = Math.floor(absDiff / unit.seconds)
-      const plural = count === 1 ? '' : 's'
-      const timeStr = `${count} ${unit.label}${plural}`
-      return isPast ? `${timeStr} ago` : `in ${timeStr}`
-    }
-  }
-
-  return 'just now'
-}
-
-export function recursiveFormatDates(node: any): any {
-  if (typeof node === 'string' && ISO_DATE_REGEX.test(node)) {
-    return formatRelativeTime(node)
-  }
-  if (Array.isArray(node)) {
-    return node.map((item) => recursiveFormatDates(item))
-  }
-  if (typeof node === 'object' && node !== null) {
-    const newObj: Record<string, any> = {}
-    for (const [k, v] of Object.entries(node)) {
-      newObj[k] = recursiveFormatDates(v)
-    }
-    return newObj
-  }
-  return node
 }
