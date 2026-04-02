@@ -19,7 +19,7 @@ export class ContextDistiller {
         // Log Deduplication for plain text
         processed = deduplicateLines(input as string, options.dedupe)
       } else {
-        // Detect JSON strings inside structured data? 
+        // Detect JSON strings inside structured data?
         // For now, only top-level string auto-parsing is handled if input was a string.
         processed = input
       }
