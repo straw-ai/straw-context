@@ -1,7 +1,7 @@
 import { Budgeter } from './budgeter.js'
-import { scrub, truncate, formatToDMD } from './engines.js'
+import { scrub, truncate, formatOutput } from './engines.js'
 import { identifyInput, tryParseJSON, deduplicateLines } from './preprocessor.js'
-import type { DistillOptions, DistillResult } from './types.js'
+import type { DistillOptions, DistillResult, LLMProvider, OutputFormat } from './types.js'
 
 export * from './types.js'
 export { presets } from './presets.js'
@@ -55,6 +55,10 @@ export class ContextDistiller {
     let originalTokens = 0
     const counter = options.tokenCounter ?? ContextDistiller.estimateTokens
 
+    // Apply Provider Defaults
+    const defaults = this.getOutputDefaults(options.targetProvider)
+    const format = options.outputFormat ?? defaults.outputFormat
+
     try {
       const originalString = JSON.stringify(processed)
       originalTokens = counter(originalString)
@@ -79,11 +83,11 @@ export class ContextDistiller {
 
     // 5. Budgeting Pass
     if (options.budget) {
-      processed = Budgeter.prune(processed, options, counter)
+      processed = Budgeter.prune(processed, options, counter, format)
     }
 
-    // 6. Formatter (Engine D)
-    const contextString = formatToDMD(processed, {
+    // 6. Formatter (Engine D - Optimized for LLM)
+    const contextString = formatOutput(processed, format, {
       tableifyArrays: options.tableifyArrays ?? true,
       tableifyThreshold: options.tableifyThreshold ?? 3,
     })
@@ -141,6 +145,18 @@ export class ContextDistiller {
     }
 
     return estimatedCount
+  }
+
+  private static getOutputDefaults(provider?: LLMProvider): { outputFormat: OutputFormat } {
+    switch (provider) {
+      case 'anthropic':
+        return { outputFormat: 'xml' }
+      case 'openai':
+      case 'gemini':
+      case 'meta':
+      default:
+        return { outputFormat: 'dmd' }
+    }
   }
 }
 

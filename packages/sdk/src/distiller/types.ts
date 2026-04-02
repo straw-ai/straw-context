@@ -74,6 +74,9 @@ export interface BudgetOptions {
   essentialKeys?: string[]
 }
 
+export type LLMProvider = 'openai' | 'anthropic' | 'gemini' | 'meta' | 'generic'
+export type OutputFormat = 'dmd' | 'xml' | 'json'
+
 /**
  * Custom middleware escape hatch.
  * Return true to KEEP, false to DROP, or undefined to use default engine logic.
@@ -105,6 +108,10 @@ export interface DistillOptions extends ScrubberOptions {
   tokenCounter?: (text: string) => number
   /** Budgeting configuration to fit strict context windows. */
   budget?: BudgetOptions
+  /** Target LLM provider to apply optimal formatting defaults. */
+  targetProvider?: LLMProvider
+  /** Override the default formatting strategy. Defaults to 'dmd'. */
+  outputFormat?: OutputFormat
 }
 
 export interface DistillResult {

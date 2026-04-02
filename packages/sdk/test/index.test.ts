@@ -1,7 +1,64 @@
 import { describe, it, expect } from 'vitest'
 
-describe('Straw AI SDK', () => {
-  it('should be true', () => {
-    expect(true).toBe(true)
+import { distill, ContextDistiller, presets } from '../src/index.js'
+
+describe('Public API Surface', () => {
+  it('exports distill as a function', () => {
+    expect(typeof distill).toBe('function')
+  })
+
+  it('exports ContextDistiller class with static distill', () => {
+    expect(typeof ContextDistiller.distill).toBe('function')
+  })
+
+  it('exports presets object', () => {
+    expect(presets).toBeDefined()
+    expect(presets.github).toBeDefined()
+  })
+
+  it('throws on null input', () => {
+    expect(() => distill(null)).toThrow()
+  })
+
+  it('throws on undefined input', () => {
+    expect(() => distill(undefined)).toThrow()
+  })
+
+  it('throws on numeric input', () => {
+    expect(() => distill(42 as any)).toThrow()
+  })
+
+  it('returns a valid DistillResult shape', () => {
+    const result = distill({ test: 'data' })
+    expect(result).toHaveProperty('contextString')
+    expect(result).toHaveProperty('reverseMap')
+    expect(result).toHaveProperty('stats')
+    expect(result.stats).toHaveProperty('originalTokens')
+    expect(result.stats).toHaveProperty('distilledTokens')
+    expect(result.stats).toHaveProperty('reductionPercent')
+    expect(result.stats).toHaveProperty('durationMs')
+  })
+
+  it('stats.reductionPercent is between 0 and 1 for reducible payloads', () => {
+    const data = {
+      id: '550e8400-e29b-41d4-a716-446655440000',
+      __typename: 'Noise',
+      avatar_url: 'https://...',
+      value: 'important',
+    }
+    const { stats } = distill(data)
+    expect(stats.reductionPercent).toBeGreaterThan(0)
+    expect(stats.reductionPercent).toBeLessThanOrEqual(1)
+  })
+
+  it('stats.durationMs is a non-negative number', () => {
+    const { stats } = distill({ x: 1 })
+    expect(stats.durationMs).toBeGreaterThanOrEqual(0)
+  })
+
+  it('stats.distilledTokens is 0 for fully pruned payloads', () => {
+    // Everything gets scrubbed as noise
+    const { stats } = distill({ __typename: 'Noise', avatar_url: 'https://...' })
+    expect(stats.distilledTokens).toBe(0)
   })
 })

@@ -1,11 +1,16 @@
-import { truncate, formatToDMD } from './engines.js'
-import type { DistillOptions, BudgetOptions } from './types.js'
+import { truncate, formatOutput } from './engines.js'
+import type { DistillOptions, BudgetOptions, OutputFormat } from './types.js'
 
 export class Budgeter {
   /**
    * Prunes the distilled object to fit within the maxContextTokens budget.
    */
-  static prune(node: any, options: DistillOptions, tokenCounter: (text: string) => number): any {
+  static prune(
+    node: any,
+    options: DistillOptions,
+    tokenCounter: (text: string) => number,
+    format: OutputFormat = 'dmd',
+  ): any {
     const budget = options.budget!
     let current = node
 
@@ -15,22 +20,30 @@ export class Budgeter {
     const baseMaxLen = options.maxStringLength ?? 1000
 
     for (const factor of dilationFactors) {
-      if (this.isWithinBudget(current, budget, options, tokenCounter)) return current
+      if (this.isWithinBudget(current, budget, options, tokenCounter, format)) return current
       current = this.applyStringDilation(current, baseMaxLen, factor)
     }
 
-    if (this.isWithinBudget(current, budget, options, tokenCounter)) return current
+    if (this.isWithinBudget(current, budget, options, tokenCounter, format)) return current
 
     // Pass 2: Branch Pruning (Priority)
     if (budget.strategy === 'priority') {
       current = this.pruneByPriority(current, budget)
-      if (this.isWithinBudget(current, budget, options, tokenCounter)) return current
+      if (this.isWithinBudget(current, budget, options, tokenCounter, format)) return current
     }
 
-    // Pass 3: Iterative Depth-First Pruning (The "Nuke" option)
+    // Pass 3: Array Truncation (Halve large arrays iteratively)
+    for (let i = 0; i < 10; i++) {
+      if (this.isWithinBudget(current, budget, options, tokenCounter, format)) return current
+      const next = this.truncateArrays(current)
+      if (JSON.stringify(next) === JSON.stringify(current)) break
+      current = next
+    }
+
+    // Pass 4: Iterative Depth-First Pruning (The "Nuke" option)
     // We prune levels one by one from the bottom up until it fits.
     for (let i = 0; i < 10; i++) {
-      if (this.isWithinBudget(current, budget, options, tokenCounter)) return current
+      if (this.isWithinBudget(current, budget, options, tokenCounter, format)) return current
       const next = this.pruneOneLevel(current, budget)
       if (next === current) break
       current = next
@@ -44,12 +57,13 @@ export class Budgeter {
     budget: BudgetOptions,
     options: DistillOptions,
     tokenCounter: (text: string) => number,
+    format: OutputFormat,
   ): boolean {
-    const dmd = formatToDMD(node, {
+    const output = formatOutput(node, format, {
       tableifyArrays: options.tableifyArrays ?? true,
       tableifyThreshold: options.tableifyThreshold ?? 3,
     })
-    return tokenCounter(dmd) <= budget.maxContextTokens
+    return tokenCounter(output) <= budget.maxContextTokens
   }
 
   private static applyStringDilation(node: any, maxLen: number, ratio: number): any {
@@ -97,6 +111,23 @@ export class Budgeter {
       return Object.keys(obj).length > 0 ? obj : undefined
     }
 
+    return walk(node)
+  }
+
+  private static truncateArrays(node: any): any {
+    const walk = (n: any): any => {
+      if (Array.isArray(n)) {
+        // Halve arrays that have more than 2 elements
+        const trimmed = n.length > 2 ? n.slice(0, Math.ceil(n.length / 2)) : n
+        return trimmed.map(walk)
+      }
+      if (typeof n === 'object' && n !== null) {
+        const obj: any = {}
+        for (const [k, v] of Object.entries(n)) obj[k] = walk(v)
+        return obj
+      }
+      return n
+    }
     return walk(node)
   }
 

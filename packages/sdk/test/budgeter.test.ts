@@ -100,4 +100,55 @@ describe('Enterprise: Tokenizer-Aware Budgeting', () => {
     // 3. Final statistics
     expect(spy.mock.calls.length).toBeGreaterThanOrEqual(2)
   })
+
+  it('prunes large arrays to fit budget', () => {
+    const data = {
+      users: Array.from({ length: 20 }, (_, i) => ({
+        name: `User_${i}`,
+        role: 'member',
+      })),
+    }
+
+    const { contextString, stats } = distill(data, {
+      tokenCounter: mockCounter,
+      budget: { maxContextTokens: 80 },
+    })
+
+    expect(stats.distilledTokens).toBeLessThanOrEqual(80)
+    // At least some users should remain
+    expect(contextString).toContain('User_')
+  })
+
+  it('budgets correctly when output format is XML', () => {
+    const data = {
+      title: 'Report',
+      detail: 'X'.repeat(300),
+    }
+
+    const { contextString, stats } = distill(data, {
+      tokenCounter: mockCounter,
+      outputFormat: 'xml',
+      budget: { maxContextTokens: 100 },
+    })
+
+    expect(stats.distilledTokens).toBeLessThanOrEqual(100)
+    expect(contextString).toContain('<context>')
+    expect(contextString).toContain('</context>')
+  })
+
+  it('budgets correctly when output format is JSON', () => {
+    const data = {
+      payload: 'Y'.repeat(300),
+    }
+
+    const { contextString, stats } = distill(data, {
+      tokenCounter: mockCounter,
+      outputFormat: 'json',
+      budget: { maxContextTokens: 60 },
+    })
+
+    expect(stats.distilledTokens).toBeLessThanOrEqual(60)
+    // Should still be valid JSON
+    expect(() => JSON.parse(contextString)).not.toThrow()
+  })
 })

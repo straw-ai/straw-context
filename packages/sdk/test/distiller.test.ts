@@ -201,29 +201,6 @@ describe('ContextDistiller', () => {
       expect(contextString).not.toContain('deduplicated')
       expect(contextString.split('\n').length).toBe(10)
     })
-
-    it('can disable the entire Input Guard', () => {
-      const json = JSON.stringify({ hello: 'world' })
-      // With guard disabled, it shouldn't auto-parse JSON, should treat as plain text
-      const { contextString } = distill(json, { enableInputGuard: false })
-      expect(contextString).toBe(json)
-    })
-
-    it('deduplicates repetitive log lines with custom threshold', () => {
-      const logs = ['[INFO] Repeat', '[INFO] Repeat', '[INFO] Repeat'].join('\n')
-
-      const { contextString } = distill(logs, {
-        dedupe: { threshold: 1, contextBuffer: 1, prefixLength: 10 },
-      })
-      expect(contextString).toContain('lines with prefix "[INFO] Rep" deduplicated')
-    })
-
-    it('can disable deduplication via config', () => {
-      const logs = Array(10).fill('[INFO] Repeat').join('\n')
-      const { contextString } = distill(logs, { dedupe: { enabled: false } })
-      expect(contextString).not.toContain('deduplicated')
-      expect(contextString.split('\n').length).toBe(10)
-    })
   })
 
   describe('Enterprise Policies & Path-Based Pruning', () => {

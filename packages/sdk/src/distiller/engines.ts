@@ -1,6 +1,11 @@
 import { DEFAULT_NOISE_KEYS } from './constants.js'
 import { redactString } from './pii.js'
-import { DistillError, type ScrubberOptions, type FilterNodeCallback } from './types.js'
+import {
+  DistillError,
+  type ScrubberOptions,
+  type FilterNodeCallback,
+  type OutputFormat,
+} from './types.js'
 
 // --- Engine A: The Heuristic Scrubber ---
 
@@ -234,6 +239,66 @@ export function truncate(text: string, maxLength: number): string {
 }
 
 // --- Engine D: DMD (Dense Markdown Data) Formatter ---
+
+/**
+ * Universal Formatter Orchestrator
+ */
+export function formatOutput(
+  input: any,
+  format: OutputFormat,
+  options: { tableifyArrays: boolean; tableifyThreshold: number },
+): string {
+  switch (format) {
+    case 'xml':
+      return formatToXML(input)
+    case 'json':
+      return formatToJSON(input)
+    case 'dmd':
+    default:
+      return formatToDMD(input, options)
+  }
+}
+
+export function formatToXML(input: any): string {
+  function toXML(node: any, indent: number = 0): string {
+    const spacing = '  '.repeat(indent)
+
+    if (Array.isArray(node)) {
+      if (node.length === 0) return ''
+      return node.map((item) => `\n${spacing}<item>${toXML(item, indent + 1)}</item>`).join('')
+    }
+
+    if (typeof node === 'object' && node !== null) {
+      const entries = Object.entries(node)
+      if (entries.length === 0) return ''
+      return entries
+        .map(([key, value]) => {
+          const safeKey = key.replace(/[^a-zA-Z0-9_-]/g, '_')
+          const inner = toXML(value, indent + 1)
+          const closeTagSpacing = inner.includes('\n') ? `\n${spacing}` : ''
+          return `\n${spacing}<${safeKey}>${inner}${closeTagSpacing}</${safeKey}>`
+        })
+        .join('')
+    }
+
+    return escapeXML(String(node))
+  }
+
+  return `<context>${toXML(input)}</context>`.trim()
+}
+
+function escapeXML(str: string): string {
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;')
+}
+
+export function formatToJSON(input: any): string {
+  return JSON.stringify(input, null, 2)
+}
 
 export function formatToDMD(
   input: any,

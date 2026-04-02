@@ -27,7 +27,8 @@
     "Nlcj",
     "Redactions",
     "baprs",
-    "pousr"
+    "pousr",
+    "apos"
   ],
   "ignorePaths": [
     "node_modules",
@@ -37,6 +38,8 @@
     ".git",
     "pnpm-lock.yaml",
     ".changeset/*.md",
-    "package.json"
+    "package.json",
+    "**/test/**",
+    "**/*.test.ts"
   ]
 }

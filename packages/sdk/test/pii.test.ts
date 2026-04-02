@@ -94,4 +94,40 @@ describe('Engine F: PII/PHI Redaction', () => {
     expect(capturedMatch).toBe('audit@test.com')
     expect(capturedPath).toBe('user.email')
   })
+
+  it('redacts PII inside deeply nested arrays', () => {
+    const data = {
+      records: [
+        { contacts: ['alice@example.com', 'bob@test.com'] },
+        { contacts: ['charlie@example.com'] },
+      ],
+    }
+    const res = distill(data, { redactPII: true })
+    expect(res.contextString).not.toContain('alice@example.com')
+    expect(res.contextString).toContain('<EMAIL_0>')
+    expect(res.contextString).toContain('<EMAIL_1>')
+    expect(res.contextString).toContain('<EMAIL_2>')
+  })
+
+  it('skips everything when enabled: false even with custom rules', () => {
+    const data = { apiKey: 'sk-123456789012345678901234567890123456789012345678' }
+    const res = distill(data, {
+      redactPII: {
+        enabled: false,
+        customRules: [{ pattern: /sk-\w+/g, replacement: '<KEY>' }],
+      },
+    })
+    expect(res.contextString).toContain('sk-')
+  })
+
+  it('handles multiple PII types in a single string value', () => {
+    const data = {
+      note: 'Contact alice@example.com or call 555-555-5555 for card 4111-1111-1111-1111',
+    }
+    const res = distill(data, { redactPII: true })
+    expect(res.contextString).toContain('<EMAIL_0>')
+    expect(res.contextString).toContain('<CREDIT_CARD_0>')
+    expect(res.contextString).not.toContain('alice@example.com')
+    expect(res.contextString).not.toContain('4111-1111-1111-1111')
+  })
 })
