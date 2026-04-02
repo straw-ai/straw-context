@@ -1,3 +1,4 @@
+import { Budgeter } from './budgeter.js'
 import { scrub, truncate, formatToDMD } from './engines.js'
 import { identifyInput, tryParseJSON, deduplicateLines } from './preprocessor.js'
 import type { DistillOptions, DistillResult } from './types.js'
@@ -52,11 +53,13 @@ export class ContextDistiller {
 
     // 2. Initial Statistics (Original Tokens)
     let originalTokens = 0
+    const counter = options.tokenCounter ?? ContextDistiller.estimateTokens
+
     try {
       const originalString = JSON.stringify(processed)
-      originalTokens = this.estimateTokens(originalString)
+      originalTokens = counter(originalString)
     } catch {
-      originalTokens = this.estimateTokens(String(processed))
+      originalTokens = counter(String(processed))
     }
 
     // 3. Unified Distillation Pass (Scrub + Date + Alias + PII)
@@ -74,14 +77,19 @@ export class ContextDistiller {
     const maxLen = options.maxStringLength ?? 1000
     processed = this.recursiveTruncate(processed, maxLen)
 
-    // 5. Formatter (Engine D)
+    // 5. Budgeting Pass
+    if (options.budget) {
+      processed = Budgeter.prune(processed, options, counter)
+    }
+
+    // 6. Formatter (Engine D)
     const contextString = formatToDMD(processed, {
       tableifyArrays: options.tableifyArrays ?? true,
       tableifyThreshold: options.tableifyThreshold ?? 3,
     })
 
-    // 8. Final Statistics
-    const distilledTokens = this.estimateTokens(contextString)
+    // 7. Final Statistics
+    const distilledTokens = counter(contextString)
 
     return {
       contextString,
@@ -113,10 +121,26 @@ export class ContextDistiller {
   }
 
   private static estimateTokens(text: string): number {
-    // Conservative heuristic: words + special characters
-    // Or simpler: chars / 3.5 (standard for mixed code/text)
     if (!text) return 0
-    return Math.ceil(text.length / 3.5)
+    // Improved Heuristic: Approximates Byte-Pair Encoding (BPE) boundaries
+    // by chunking alphanumeric words and punctuation clusters.
+    // It remains 0-dependency to keep the SDK ultra-lightweight.
+    // For 100% precision, provide a real tokenizer via `options.tokenCounter`.
+
+    const chunks = text.match(/[\w]+|[^\w\s]+/g)
+    if (!chunks) return Math.ceil(text.length / 3.5)
+
+    let estimatedCount = 0
+    for (const chunk of chunks) {
+      // Long alphanumeric words usually get split into 3-4 char BPE sub-tokens
+      if (chunk.length > 4 && /\w/.test(chunk)) {
+        estimatedCount += Math.ceil(chunk.length / 4)
+      } else {
+        estimatedCount += 1 // Short words or punctuation blocks count as roughly 1 token
+      }
+    }
+
+    return estimatedCount
   }
 }
 

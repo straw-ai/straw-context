@@ -58,6 +58,22 @@ export interface RedactOptions {
   onRedact?: (type: string, match: string, path: string) => void
 }
 
+export interface BudgetOptions {
+  /** The strict token limit for the distilled output. */
+  maxContextTokens: number
+  /**
+   * Strategy for pruning when over budget.
+   * 'depth': Prune deeply nested nodes first.
+   * 'priority': Use priorityKeys to determine what to drop first.
+   * Default: 'depth'
+   */
+  strategy?: 'depth' | 'priority'
+  /** Keys or paths that should be considered low priority (dropped first). */
+  lowPriorityKeys?: string[]
+  /** Keys or paths that MUST never be dropped during budgeting. */
+  essentialKeys?: string[]
+}
+
 /**
  * Custom middleware escape hatch.
  * Return true to KEEP, false to DROP, or undefined to use default engine logic.
@@ -85,6 +101,10 @@ export interface DistillOptions extends ScrubberOptions {
   filterNode?: FilterNodeCallback
   /** Options for PII and PHI redaction. Default: false */
   redactPII?: boolean | RedactOptions
+  /** Custom token counter function (e.g. using tiktoken). */
+  tokenCounter?: (text: string) => number
+  /** Budgeting configuration to fit strict context windows. */
+  budget?: BudgetOptions
 }
 
 export interface DistillResult {
