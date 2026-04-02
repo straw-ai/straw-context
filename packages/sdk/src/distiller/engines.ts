@@ -1,5 +1,5 @@
-import { DistillError, type ScrubberOptions, type FilterNodeCallback } from './types.js'
 import { DEFAULT_NOISE_KEYS } from './constants.js'
+import { DistillError, type ScrubberOptions, type FilterNodeCallback } from './types.js'
 
 // --- Engine A: The Heuristic Scrubber ---
 
