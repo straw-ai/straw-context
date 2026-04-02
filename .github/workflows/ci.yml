@@ -14,6 +14,8 @@ jobs:
     steps:
       - name: Checkout Repo
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Install pnpm
         uses: pnpm/action-setup@v4
@@ -46,4 +48,6 @@ jobs:
 
       - name: Check for changesets
         if: github.event_name == 'pull_request'
-        run: pnpm changeset status
+        run: |
+          git fetch origin main:main
+          pnpm changeset status

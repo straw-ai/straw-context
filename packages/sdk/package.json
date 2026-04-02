@@ -15,7 +15,10 @@
     "build": "tsup && tsc --emitDeclarationOnly",
     "test": "vitest run",
     "lint": "oxlint",
-    "format": "oxfmt --write ."
+    "format": "oxfmt --config ../../.oxfmtrc.json --write .",
+    "format:check": "oxfmt --config ../../.oxfmtrc.json --check .",
+    "spellcheck": "cspell \"src/**/*.ts\"",
+    "dev": "tsup --watch"
   },
   "devDependencies": {
     "@types/js-yaml": "^4.0.9",

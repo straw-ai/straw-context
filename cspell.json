@@ -12,7 +12,14 @@
     "monorepo",
     "changeset",
     "changesets",
-    "husky"
+    "husky",
+    "Truncator",
+    "tableify",
+    "ification",
+    "DMD",
+    "tiktoken",
+    "Aliaser",
+    "Distiller"
   ],
   "ignorePaths": [
     "node_modules",
