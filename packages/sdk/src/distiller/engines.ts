@@ -34,14 +34,14 @@ export function formatRelativeTime(isoString: string): string {
   const diffInMs = date.getTime() - now.getTime()
   const absDiff = Math.abs(diffInMs)
 
-  const seconds = Math.floor(absDiff / 1000)
-  const minutes = Math.floor(seconds / 60)
-  const hours = Math.floor(minutes / 60)
-  const days = Math.floor(hours / 24)
-  const months = Math.floor(days / 30)
-  const years = Math.floor(days / 365)
+  const seconds = Math.round(absDiff / 1000)
+  const minutes = Math.round(seconds / 60)
+  const hours = Math.round(minutes / 60)
+  const days = Math.round(hours / 24)
+  const months = Math.round(days / 30)
+  const years = Math.round(days / 365)
 
-  const formatter = new Intl.RelativeTimeFormat('en', { numeric: 'auto', style: 'long' })
+  const formatter = new Intl.RelativeTimeFormat('en', { numeric: 'always', style: 'long' })
 
   if (years > 0) return formatter.format(Math.sign(diffInMs) * years, 'year')
   if (months > 0) return formatter.format(Math.sign(diffInMs) * months, 'month')
