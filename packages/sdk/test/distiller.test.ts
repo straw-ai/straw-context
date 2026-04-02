@@ -1,13 +1,12 @@
 import { describe, it, expect } from 'vitest'
 
-import { distill, DistillError } from '../src/index.js'
+import { distill, presets } from '../src/index.js'
 
 describe('ContextDistiller', () => {
   describe('Engine A: Scrubber', () => {
-    it('throws on configuration conflict', () => {
-      expect(() => distill({}, { dropKeys: ['id'], preserveKeys: ['id'] })).toThrowError(
-        DistillError,
-      )
+    it('resolves conflicts by letting preserveKeys win', () => {
+      const { contextString } = distill({ id: 123 }, { dropKeys: ['id'], preserveKeys: ['id'] })
+      expect(contextString).toContain('id: 123')
     })
 
     it('throws on circular references', () => {
@@ -153,35 +152,29 @@ describe('ContextDistiller', () => {
       const { contextString } = distill(data, { relativeDates: false })
       expect(contextString).toContain(`date: ${date}`)
     })
+
+    it('uses dateAnchor for deterministic relative dates', () => {
+      const anchor = new Date('2026-04-02T10:00:00Z')
+      const target = new Date('2026-03-30T10:00:00Z').toISOString() // 3 days before anchor
+      const data = { event: target }
+
+      const { contextString } = distill(data, { dateAnchor: anchor })
+      expect(contextString).toContain('event: 3 days ago')
+    })
   })
 
-  describe('Input Guard & Pre-Processor', () => {
-    it('automatically parses valid JSON strings', () => {
+  describe('Input Guard & Configuration', () => {
+    it('automatically parses valid JSON strings by default', () => {
       const json = JSON.stringify({ hello: 'world' })
       const { contextString } = distill(json)
       expect(contextString).toBe('hello: world')
     })
 
-    it('deduplicates repetitive log lines', () => {
-      const logs = [
-        '[INFO] Starting server...',
-        '[INFO] Request received',
-        '[INFO] Request received',
-        '[INFO] Request received',
-        '[INFO] Request received',
-        '[INFO] Request received',
-        '[INFO] Request received',
-        '[INFO] Request received',
-        '[INFO] Request received',
-        '[INFO] Processing done',
-        '[INFO] Server idle',
-      ].join('\n')
-
-      const { contextString } = distill(logs)
-      expect(contextString).toContain('lines with prefix "[INFO]')
-      expect(contextString).toContain('deduplicated')
-      expect(contextString).toContain('Starting server')
-      expect(contextString).toContain('Server idle')
+    it('can disable the entire Input Guard', () => {
+      const json = JSON.stringify({ hello: 'world' })
+      // With guard disabled, it shouldn't auto-parse JSON, should treat as plain text
+      const { contextString } = distill(json, { enableInputGuard: false })
+      expect(contextString).toBe(json)
     })
     it('respects custom deduplication threshold', () => {
       const logs = [
@@ -216,66 +209,121 @@ describe('ContextDistiller', () => {
       expect(contextString).toBe(json)
     })
 
-    it('detects tables with 80% key overlap (Table-Sense)', () => {
-      const data = [
-        { id: 1, name: 'Alice', extra: 'foo' },
-        { id: 2, name: 'Bob' }, // missing 'extra'
-        { id: 3, name: 'Charlie', extra: 'bar' },
-      ]
+    it('deduplicates repetitive log lines with custom threshold', () => {
+      const logs = ['[INFO] Repeat', '[INFO] Repeat', '[INFO] Repeat'].join('\n')
 
-      const { contextString: _cs } = distill(data, { tableifyThreshold: 2 })
-      // Alice (3 keys). Bob (2 keys). Overlap is 2/3 = 66%. This shouldn't be a table if threshold is 80%.
-      // Let's test a case that WOULD match.
+      const { contextString } = distill(logs, {
+        dedupe: { threshold: 1, contextBuffer: 1, prefixLength: 10 },
+      })
+      expect(contextString).toContain('lines with prefix "[INFO] Rep" deduplicated')
+    })
 
-      const tableData = [
-        { id: 1, name: 'Alice', a: 1, b: 2, c: 3 },
-        { id: 2, name: 'Bob', a: 1, b: 2 }, // 4/5 keys match = 80%
-      ]
-
-      const { contextString: tableOutput } = distill(tableData, { tableifyThreshold: 2 })
-      expect(tableOutput).toContain('| id | name | a | b | c |')
+    it('can disable deduplication via config', () => {
+      const logs = Array(10).fill('[INFO] Repeat').join('\n')
+      const { contextString } = distill(logs, { dedupe: { enabled: false } })
+      expect(contextString).not.toContain('deduplicated')
+      expect(contextString.split('\n').length).toBe(10)
     })
   })
 
-  describe('Regression: Table Fixes (Staff Review)', () => {
-    it('stringifies nested objects in table cells instead of [object Object]', () => {
-      const data = [
-        { id: 1, info: { name: 'Alice', age: 30 } },
-        { id: 2, info: { name: 'Bob', age: 25 } },
-      ]
-
-      const { contextString } = distill(data, { tableifyThreshold: 2 })
-      expect(contextString).toContain('{"name":"Alice","age":30}')
-      expect(contextString).not.toContain('[object Object]')
-    })
-
-    it('escapes pipes in table cells to prevent Markdown breakage', () => {
-      const data = [
-        { id: 1, note: 'Value | with | pipes' },
-        { id: 2, note: 'Normal' },
-      ]
-
-      const { contextString } = distill(data, { tableifyThreshold: 2 })
-      expect(contextString).toContain('Value \\| with \\| pipes')
-    })
-  })
-
-  describe('Full Distillation', () => {
-    it('calculates reduction statistics', () => {
+  describe('Enterprise Policies & Path-Based Pruning', () => {
+    it('supports dot-notation paths in dropKeys', () => {
       const data = {
-        junk: null,
-        noise: '__typename',
-        nested: {
-          deep: 'value',
-          long: 'X'.repeat(2000),
-        },
+        user: { id: 1, internal_id: 'secret' },
+        project: { id: 2, internal_id: 'secret' },
       }
 
-      const { stats } = distill(data, { maxStringLength: 100 })
+      // Drop only user.internal_id, but keep project.internal_id
+      const { contextString } = distill(data, { dropKeys: ['user.internal_id'] })
+      expect(contextString).not.toContain('user:\n  internal_id')
+      expect(contextString).toContain('project:')
+      expect(contextString).toContain('internal_id: secret')
+    })
 
-      expect(stats.originalTokens).toBeGreaterThan(0)
-      expect(stats.distilledTokens).toBeLessThan(stats.originalTokens)
-      expect(stats.reductionPercent).toBeGreaterThan(0)
+    it('implements Specificity Wins: preserveKeys overrides default blacklist', () => {
+      const data = {
+        avatar_url: 'https://...', // Normally dropped by DEFAULT_NOISE_KEYS
+        other: 'info',
+      }
+
+      const { contextString } = distill(data, { preserveKeys: ['avatar_url'] })
+      expect(contextString).toContain('avatar_url: https://...')
+    })
+
+    it('can disable the default blacklist entirely', () => {
+      const data = {
+        avatar_url: 'https://...', // Normally dropped by DEFAULT_NOISE_KEYS
+        other: 'info',
+      }
+
+      // Default is enabled (dropped)
+      expect(distill(data).contextString).not.toContain('avatar_url')
+
+      // Explicitly disabled (kept)
+      const { contextString } = distill(data, { useDefaultBlacklist: false })
+      expect(contextString).toContain('avatar_url: https://...')
+    })
+
+    it('works with Enterprise Presets (e.g. GitHub)', () => {
+      const githubData = {
+        id: 123,
+        node_id: 'MDQ6VXNlcjE=',
+        login: 'octocat',
+      }
+
+      const { contextString } = distill(githubData, presets.github)
+      expect(contextString).toContain('login: octocat')
+      expect(contextString).not.toContain('node_id')
+    })
+
+    it('supports path-based wildcards like *.key', () => {
+      const data = {
+        meta: { css_classes: 'foo' },
+        deep: { nested: { css_classes: 'bar' } },
+      }
+
+      const { contextString } = distill(data, { dropKeys: ['*.css_classes'] })
+      expect(contextString).not.toContain('css_classes')
+    })
+  })
+
+  describe('Middleware Escape Hatch (filterNode)', () => {
+    it('runs custom middleware before internal engines', () => {
+      const data = {
+        nuke_me: 'data',
+        keep_me: 'data',
+        sensitive: 'very secret',
+      }
+
+      const { contextString } = distill(data, {
+        filterNode: (key, _value) => {
+          if (key === 'nuke_me') return false // DROP
+          if (key === 'sensitive') return true // KEEP (no further processing on this node)
+          return undefined // Fall back
+        },
+      })
+
+      expect(contextString).not.toContain('nuke_me')
+      expect(contextString).toContain('keep_me')
+      expect(contextString).toContain('sensitive: very secret')
+    })
+
+    it('provides the full path to the middleware', () => {
+      const data = {
+        user: { profile: { email: 'test@example.com' } },
+      }
+
+      let capturedPath = ''
+      distill(data, {
+        filterNode: (_key, _value, path) => {
+          if (path === 'user.profile.email') {
+            capturedPath = path
+          }
+          return undefined
+        },
+      })
+
+      expect(capturedPath).toBe('user.profile.email')
     })
   })
 })

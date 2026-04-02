@@ -45,7 +45,7 @@ The core transformation is handled by `distillPayload()`, which performs a singl
 
 - **Engine A (Scrub)**: Prunes noise and handles wildcard patterns (`*_id`).
 - **Engine C (Alias)**: Replaces high-entropy identifiers (UUIDs) with `$ID_0`.
-- **Engine E (Dates)**: detection and relative-stay conversion (`3 days ago`).
+- **Engine E (Dates)**: detection and relative-time conversion (`3 days ago`).
 
 ### 4. DMD Formatter (`engines.ts`)
 
@@ -59,4 +59,4 @@ Unlike verbose JSON, DMD is designed for LLM attention:
 
 - **Indentation-based**: Uses 2-space indentation to define hierarchy.
 - **Key-Value Clarity**: `key: value` pairs instead of `{"key": "value"}`.
-- **Compressed Collections**: Repetitive data structures are table-ified to minimize token footprint.
+- **Compressed Collections**: Repetitive data structures are formatted as tables to minimize token footprint.

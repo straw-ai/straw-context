@@ -1,8 +1,20 @@
 export interface ScrubberOptions {
-  /** Keys to completely remove from the payload. Supports wildcards (e.g. '*_id', 'internal_*'). */
+  /**
+   * Keys or dot-notation paths to completely remove from the payload.
+   * Supports wildcards (e.g. '*_id', 'metadata.internal_*').
+   */
   dropKeys?: string[]
-  /** Keys to protect from truncation or dropping, even if empty/null. Supports wildcards. */
+  /**
+   * Keys or dot-notation paths to protect from truncation or dropping.
+   * Punches a hole through DEFAULT_NOISE_KEYS.
+   */
   preserveKeys?: string[]
+  /**
+   * If true, uses the built-in "System Default Policy" to drop noisy keys.
+   * (e.g. __typename, _links, etc.)
+   * Default: true.
+   */
+  useDefaultBlacklist?: boolean
   /** Default: false ([] has semantic meaning) */
   pruneEmptyArrays?: boolean
 }
@@ -17,6 +29,12 @@ export interface DedupeOptions {
   /** Number of lines to keep at start and end of a group. Default: 2 */
   contextBuffer?: number
 }
+
+/**
+ * Custom middleware escape hatch.
+ * Return true to KEEP, false to DROP, or undefined to use default engine logic.
+ */
+export type FilterNodeCallback = (key: string, value: any, path: string) => boolean | undefined
 
 export interface DistillOptions extends ScrubberOptions {
   /** Hard cap on string values. Uses Middle-Out truncation. Default: 1000 */
@@ -33,6 +51,10 @@ export interface DistillOptions extends ScrubberOptions {
   enableInputGuard?: boolean
   /** Configuration for Semantic Line Deduplication */
   dedupe?: DedupeOptions
+  /** Anchor date for relative time calculations (useful for testing). Default: new Date() */
+  dateAnchor?: Date
+  /** Custom middleware to run on every node before default engines. */
+  filterNode?: FilterNodeCallback
 }
 
 export interface DistillResult {

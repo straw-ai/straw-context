@@ -1,8 +1,9 @@
-import { distillPayload, truncate, formatToDMD } from './engines.js'
+import { scrub, truncate, formatToDMD } from './engines.js'
 import { identifyInput, tryParseJSON, deduplicateLines } from './preprocessor.js'
 import type { DistillOptions, DistillResult } from './types.js'
 
 export * from './types.js'
+export { presets } from './presets.js'
 
 export class ContextDistiller {
   static distill(input: any, options: DistillOptions = {}): DistillResult {
@@ -59,7 +60,7 @@ export class ContextDistiller {
     }
 
     // 3. Unified Distillation Pass (Scrub + Date + Alias)
-    processed = distillPayload(
+    processed = scrub(
       processed,
       {
         ...options,
