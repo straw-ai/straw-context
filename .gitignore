@@ -4,6 +4,7 @@ build/
 .next/
 out/
 .turbo/
+*.tsbuildinfo
 
 # Packages
 node_modules/
