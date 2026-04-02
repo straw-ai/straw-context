@@ -1,11 +1,7 @@
 import { DEFAULT_NOISE_KEYS } from './constants.js'
 import { DistillError, type ScrubberOptions, type FilterNodeCallback } from './types.js'
 
-// --- Engine A: The Heuristic Scrubber ---
-
-// --- Engine A: The Heuristic Scrubber ---
-
-// DEFAULT_NOISE_KEYS is now imported from constants.ts
+// --- Engine A: Scrubber & Unified Engine ---
 
 export { DEFAULT_NOISE_KEYS } from './constants.js'
 
@@ -155,21 +151,24 @@ export function formatRelativeTime(isoString: string, anchor?: Date): string {
   const diffInMs = date.getTime() - now.getTime()
   const absDiff = Math.abs(diffInMs)
 
-  const seconds = Math.round(absDiff / 1000)
-  const minutes = Math.round(seconds / 60)
-  const hours = Math.round(minutes / 60)
-  const days = Math.round(hours / 24)
-  const months = Math.round(days / 30)
-  const years = Math.round(days / 365)
+  const units: { unit: Intl.RelativeTimeFormatUnit; ms: number }[] = [
+    { unit: 'year', ms: 365 * 24 * 60 * 60 * 1000 },
+    { unit: 'month', ms: 30 * 24 * 60 * 60 * 1000 },
+    { unit: 'day', ms: 24 * 60 * 60 * 1000 },
+    { unit: 'hour', ms: 60 * 60 * 1000 },
+    { unit: 'minute', ms: 60 * 1000 },
+    { unit: 'second', ms: 1000 },
+  ]
 
   const formatter = new Intl.RelativeTimeFormat('en', { numeric: 'always', style: 'long' })
 
-  if (years > 0) return formatter.format(Math.sign(diffInMs) * years, 'year')
-  if (months > 0) return formatter.format(Math.sign(diffInMs) * months, 'month')
-  if (days > 0) return formatter.format(Math.sign(diffInMs) * days, 'day')
-  if (hours > 0) return formatter.format(Math.sign(diffInMs) * hours, 'hour')
-  if (minutes > 0) return formatter.format(Math.sign(diffInMs) * minutes, 'minute')
-  return formatter.format(Math.sign(diffInMs) * seconds, 'second')
+  for (const { unit, ms } of units) {
+    if (absDiff >= ms || unit === 'second') {
+      return formatter.format(Math.round(diffInMs / ms), unit)
+    }
+  }
+
+  return isoString
 }
 
 // --- Engine B: The Middle-Out Truncator ---
@@ -226,27 +225,15 @@ function isArrayOfSimilarObjects(arr: any[]): boolean {
   if (arr.length < 2) return false
   const sample = arr.slice(0, 3)
 
-  if (sample.some((s) => typeof s !== 'object' || s === null || Array.isArray(s))) {
-    return false
-  }
+  const isObject = (val: any) => val !== null && typeof val === 'object' && !Array.isArray(val)
+  if (!sample.every(isObject)) return false
 
-  const keysSet = sample.map((s) => new Set(Object.keys(s)))
-  const firstKeys = Object.keys(sample[0])
-
-  for (let i = 1; i < sample.length; i++) {
-    const currentKeys = keysSet[i]
-    if (!currentKeys) continue
-
-    let overlapCount = 0
-    for (const key of firstKeys) {
-      if (currentKeys.has(key)) overlapCount++
-    }
-
-    const overlap = overlapCount / Math.max(firstKeys.length, 1)
-    if (overlap < 0.8) return false
-  }
-
-  return true
+  const firstKeys = Object.keys(sample[0]!)
+  return sample.slice(1).every((s) => {
+    const keys = new Set(Object.keys(s))
+    const overlap = firstKeys.filter((k) => keys.has(k)).length / Math.max(firstKeys.length, 1)
+    return overlap >= 0.8
+  })
 }
 
 function formatAsTable(arr: any[], indent: number): string {

@@ -10,96 +10,78 @@ export class ContextDistiller {
     const start = Date.now()
     const reverseMap = new Map<string, string>()
 
-    // 1. Input Guard: Identify and Normalize
-    const guardEnabled = options.enableInputGuard !== false
+    // 1. Input Guard: Normalize Input
     let processed = input
+    const guardEnabled = options.enableInputGuard !== false
 
     if (guardEnabled) {
       const type = identifyInput(input)
       if (type === 'unstructured') {
-        // Log Deduplication for plain text
         processed = deduplicateLines(input as string, options.dedupe)
-      } else {
-        processed = input
       }
 
-      // If it's a string, try to parse as JSON to move to the structured pipeline
+      // Transition unstructured string to structured pipeline if it's valid JSON
       if (typeof processed === 'string') {
         const parsed = tryParseJSON(processed)
         if (parsed) {
           processed = parsed
         } else {
-          // It's just plain text (e.g. logs), return early with minimal processing
-          const text = deduplicateLines(processed, options.dedupe)
-          return {
-            contextString: text,
-            reverseMap: new Map(),
-            stats: {
-              originalTokens: ContextDistiller.estimateTokens(input as string),
-              distilledTokens: ContextDistiller.estimateTokens(text),
-              reductionPercent:
-                1 -
-                ContextDistiller.estimateTokens(text) /
-                  ContextDistiller.estimateTokens(input as string),
-              durationMs: Date.now() - start,
-            },
-          }
+          // It's pure plain text, return early with minimal processing
+          const distilledText = deduplicateLines(processed, options.dedupe)
+          return this.createResult(input, distilledText, reverseMap, start)
         }
       }
     }
 
-    // 2. Initial Statistics (Original Tokens)
-    let originalTokens = 0
-    try {
-      const originalString = JSON.stringify(processed)
-      originalTokens = this.estimateTokens(originalString)
-    } catch {
-      originalTokens = this.estimateTokens(String(processed))
-    }
+    // 2. Initial Statistics
+    const originalTokens = this.estimateTokens(processed)
 
-    // 3. Unified Distillation Pass (Scrub + Date + Alias)
+    // 3. Transformation Pipeline
+    // Engine A/C/E: (Scrub + Alias + Date)
     processed = scrub(
       processed,
-      {
-        ...options,
-        aliasIds: options.enableAliasing !== false,
-      },
+      { ...options, aliasIds: options.enableAliasing !== false },
       reverseMap,
     )
 
-    // 4. Truncator (Engine B) - Applied recursively to strings
-    const maxLen = options.maxStringLength ?? 1000
-    processed = this.recursiveTruncate(processed, maxLen)
+    // Engine B: Truncator (Applied recursively)
+    processed = this.recursiveTruncate(processed, options.maxStringLength ?? 1000)
 
-    // 5. Formatter (Engine D)
+    // Engine D: Formatter
     const contextString = formatToDMD(processed, {
       tableifyArrays: options.tableifyArrays ?? true,
       tableifyThreshold: options.tableifyThreshold ?? 3,
     })
 
-    // 8. Final Statistics
-    const distilledTokens = this.estimateTokens(contextString)
+    return this.createResult(input, contextString, reverseMap, start, originalTokens)
+  }
+
+  private static createResult(
+    originalInput: any,
+    distilledString: string,
+    reverseMap: Map<string, string>,
+    startTime: number,
+    cachedOriginalTokens?: number,
+  ): DistillResult {
+    const originalTokens = cachedOriginalTokens ?? this.estimateTokens(originalInput)
+    const distilledTokens = this.estimateTokens(distilledString)
 
     return {
-      contextString,
+      contextString: distilledString,
       reverseMap,
       stats: {
         originalTokens,
         distilledTokens,
         reductionPercent: originalTokens > 0 ? 1 - distilledTokens / originalTokens : 0,
-        durationMs: Date.now() - start,
+        durationMs: Date.now() - startTime,
       },
     }
   }
 
   private static recursiveTruncate(node: any, maxLen: number): any {
-    if (typeof node === 'string') {
-      return truncate(node, maxLen)
-    }
-    if (Array.isArray(node)) {
-      return node.map((item) => this.recursiveTruncate(item, maxLen))
-    }
-    if (typeof node === 'object' && node !== null) {
+    if (typeof node === 'string') return truncate(node, maxLen)
+    if (Array.isArray(node)) return node.map((item) => this.recursiveTruncate(item, maxLen))
+    if (node !== null && typeof node === 'object') {
       const newObj: Record<string, any> = {}
       for (const [k, v] of Object.entries(node)) {
         newObj[k] = this.recursiveTruncate(v, maxLen)
@@ -109,10 +91,9 @@ export class ContextDistiller {
     return node
   }
 
-  private static estimateTokens(text: string): number {
-    // Conservative heuristic: words + special characters
-    // Or simpler: chars / 3.5 (standard for mixed code/text)
-    if (!text) return 0
+  private static estimateTokens(input: any): number {
+    if (!input) return 0
+    const text = typeof input === 'string' ? input : JSON.stringify(input)
     return Math.ceil(text.length / 3.5)
   }
 }

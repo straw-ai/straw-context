@@ -7,21 +7,17 @@ export function identifyInput(input: any): InputType {
     throw new DistillError('Input cannot be null or undefined.')
   }
 
-  if (typeof input === 'object') return 'structured'
-  if (typeof input === 'string') return 'unstructured'
-
-  throw new DistillError(
-    `Invalid Input: Must be a JSON object, Array, or String. Received: ${typeof input}`,
-  )
+  return typeof input === 'object' ? 'structured' : 'unstructured'
 }
 
 export function tryParseJSON(input: string): any | null {
+  const trimmed = input.trim()
   if (
-    (input.startsWith('{') && input.endsWith('}')) ||
-    (input.startsWith('[') && input.endsWith(']'))
+    (trimmed.startsWith('{') && trimmed.endsWith('}')) ||
+    (trimmed.startsWith('[') && trimmed.endsWith(']'))
   ) {
     try {
-      return JSON.parse(input)
+      return JSON.parse(trimmed)
     } catch {
       return null
     }
@@ -42,55 +38,53 @@ export function deduplicateLines(text: string, options?: DedupeOptions): string 
   const contextBuffer = options?.contextBuffer ?? 2
 
   const lines = text.split('\n')
-  if (lines.length <= contextBuffer * 2) return text // Too short to deduplicate safely
+  if (lines.length <= contextBuffer * 2) return text
 
   const processed: string[] = []
   let i = 0
 
   while (i < lines.length) {
-    const currentLine = lines[i]
-    if (currentLine === undefined || !currentLine.trim()) {
-      if (currentLine !== undefined) processed.push(currentLine)
+    const line = lines[i]
+    if (line === undefined) {
       i++
       continue
     }
 
-    // Heuristic: Check if next lines share the same prefix
-    const firstLine = lines[i]
-    if (firstLine === undefined) {
+    if (!line.trim()) {
+      processed.push(line)
       i++
       continue
     }
-    const prefix = firstLine.slice(0, prefixLength)
-    let j = i + 1
-    while (j < lines.length) {
-      const line = lines[j]
-      if (line !== undefined && line.startsWith(prefix)) {
-        j++
+
+    // Heuristic: Check if following lines share the same prefix
+    const prefix = line.slice(0, prefixLength)
+    let nextIndex = i + 1
+    while (nextIndex < lines.length) {
+      const nextLine = lines[nextIndex]
+      if (nextLine !== undefined && nextLine.startsWith(prefix)) {
+        nextIndex++
       } else {
         break
       }
     }
 
-    const count = j - i
+    const count = nextIndex - i
     if (count > threshold) {
-      // Repetitive block found
+      // Repetitive block found: Keep contextBuffer lines from start and end
       for (let k = 0; k < contextBuffer; k++) {
-        const line = lines[i + k]
-        if (line !== undefined) processed.push(line)
+        processed.push(lines[i + k]!)
       }
 
       processed.push(
-        `...[${count - contextBuffer * 2} lines with prefix "${prefix.trim()}" deduplicated]...`,
+        `...[${count - contextBuffer * 2} lines with prefix "${prefix.trim() || 'whitespace'}" deduplicated]...`,
       )
 
-      for (let k = contextBuffer; k > 0; k--) {
-        const line = lines[j - k]
-        if (line !== undefined) processed.push(line)
+      for (let k = contextBuffer - 1; k >= 0; k--) {
+        processed.push(lines[nextIndex - 1 - k]!)
       }
-      i = j
+      i = nextIndex
     } else {
-      processed.push(currentLine!)
+      processed.push(line)
       i++
     }
   }
