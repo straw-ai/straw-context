@@ -13,19 +13,22 @@ const BUILT_IN_PATTERNS: Record<PIIType, RegExp> = {
 
 const DEFAULT_TYPES: PIIType[] = ['api-key', 'credit-card', 'email', 'phone']
 
+/**
+ * Redacts PII/PHI from a string based on the provided options.
+ */
 export function redactString(
   text: string,
-  options: boolean | RedactOptions,
+  options: RedactOptions,
   forwardMap: Map<string, string>,
   reverseMap: Map<string, string>,
   counters: Record<string, number>,
   path: string,
 ): string {
-  if (!options || (typeof options === 'object' && options.enabled === false)) {
+  if (!options) {
     return text
   }
 
-  const opt = typeof options === 'boolean' ? {} : options
+  const opt = options
   const activeTypes = opt.types ?? DEFAULT_TYPES
   const customRules = opt.customRules ?? []
 

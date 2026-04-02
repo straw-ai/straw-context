@@ -1,15 +1,32 @@
 {
   "name": "@straw-ai/sdk",
   "version": "0.0.1",
-  "description": "",
-  "keywords": [],
-  "license": "ISC",
-  "author": "",
+  "description": "Dense Markdown Data (DMD) - context minification for LLMs",
+  "keywords": [
+    "context",
+    "json",
+    "llm",
+    "markdown",
+    "minification",
+    "prompt-engineering"
+  ],
+  "license": "MIT",
+  "author": "Straw AI",
+  "files": [
+    "dist",
+    "README.md"
+  ],
   "type": "module",
-  "main": "index.js",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "exports": {
-    "./package.json": "./package.json",
-    "./src/*": "./dist/*"
+    ".": {
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs",
+      "types": "./dist/index.d.ts"
+    },
+    "./package.json": "./package.json"
   },
   "scripts": {
     "build": "tsup && tsc --emitDeclarationOnly",

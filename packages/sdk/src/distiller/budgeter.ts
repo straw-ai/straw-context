@@ -14,14 +14,18 @@ export class Budgeter {
     const budget = options.budget!
     let current = node
 
-    // Pass 1: Iterative String Dilation (Steps: 50%, 25%, 10%, 5%, 2%)
-    // This scales down strings until they hit a sensible floor.
+    // Pass 1: Iterative String Dilation
     const dilationFactors = [0.5, 0.25, 0.1, 0.05, 0.02]
     const baseMaxLen = options.maxStringLength ?? 1000
 
     for (const factor of dilationFactors) {
       if (this.isWithinBudget(current, budget, options, tokenCounter, format)) return current
-      current = this.applyStringDilation(current, baseMaxLen, factor)
+      current = this.applyStringDilation(
+        current,
+        baseMaxLen,
+        factor,
+        options.stringTruncationStrategy ?? 'middle',
+      )
     }
 
     if (this.isWithinBudget(current, budget, options, tokenCounter, format)) return current
@@ -32,20 +36,19 @@ export class Budgeter {
       if (this.isWithinBudget(current, budget, options, tokenCounter, format)) return current
     }
 
-    // Pass 3: Array Truncation (Halve large arrays iteratively)
+    // Pass 3: Array Truncation (More aggressive)
     for (let i = 0; i < 10; i++) {
       if (this.isWithinBudget(current, budget, options, tokenCounter, format)) return current
-      const next = this.truncateArrays(current)
-      if (JSON.stringify(next) === JSON.stringify(current)) break
+      const { next, changed } = this.truncateArraysAggressive(current)
+      if (!changed) break
       current = next
     }
 
     // Pass 4: Iterative Depth-First Pruning (The "Nuke" option)
-    // We prune levels one by one from the bottom up until it fits.
-    for (let i = 0; i < 10; i++) {
+    for (let i = 0; i < 20; i++) {
       if (this.isWithinBudget(current, budget, options, tokenCounter, format)) return current
-      const next = this.pruneOneLevel(current, budget)
-      if (next === current) break
+      const { next, changed } = this.pruneOneLevel(current, budget)
+      if (!changed) break
       current = next
     }
 
@@ -66,12 +69,15 @@ export class Budgeter {
     return tokenCounter(output) <= budget.maxContextTokens
   }
 
-  private static applyStringDilation(node: any, maxLen: number, ratio: number): any {
-    // Ensure the floor is actually small enough (e.g. 10 chars)
+  private static applyStringDilation(
+    node: any,
+    maxLen: number,
+    ratio: number,
+    strategy: 'middle' | 'end' | 'start',
+  ): any {
     const newMax = Math.max(10, Math.floor(maxLen * ratio))
-
     const walk = (n: any): any => {
-      if (typeof n === 'string') return truncate(n, newMax)
+      if (typeof n === 'string') return truncate(n, newMax, strategy)
       if (Array.isArray(n)) return n.map(walk)
       if (typeof n === 'object' && n !== null) {
         const obj: any = {}
@@ -86,40 +92,56 @@ export class Budgeter {
   private static pruneByPriority(node: any, budget: BudgetOptions): any {
     const lowPriority = new Set(budget.lowPriorityKeys ?? [])
     const essential = new Set(budget.essentialKeys ?? [])
-
     const walk = (n: any, path: string = ''): any => {
       if (typeof n !== 'object' || n === null) return n
-
       if (Array.isArray(n)) {
         return n.map((item, idx) => walk(item, `${path}.${idx}`)).filter((v) => v !== undefined)
       }
-
       const obj: any = {}
       for (const [k, v] of Object.entries(n)) {
         const subPath = path ? `${path}.${k}` : k
-
-        // If it's low priority and NOT essential, drop it
-        if (lowPriority.has(k) || lowPriority.has(subPath)) {
-          if (!essential.has(k) && !essential.has(subPath)) {
-            continue
-          }
-        }
-
+        if (
+          (lowPriority.has(k) || lowPriority.has(subPath)) &&
+          !essential.has(k) &&
+          !essential.has(subPath)
+        )
+          continue
         const val = walk(v, subPath)
         if (val !== undefined) obj[k] = val
       }
       return Object.keys(obj).length > 0 ? obj : undefined
     }
-
     return walk(node)
   }
 
-  private static truncateArrays(node: any): any {
+  private static truncateArraysAggressive(node: any): { next: any; changed: boolean } {
+    let changed = false
     const walk = (n: any): any => {
       if (Array.isArray(n)) {
-        // Halve arrays that have more than 2 elements
-        const trimmed = n.length > 2 ? n.slice(0, Math.ceil(n.length / 2)) : n
-        return trimmed.map(walk)
+        // Find real items (exclude summary strings)
+        const realItems = n.filter(
+          (item) => typeof item !== 'string' || !item.startsWith('... [pruned'),
+        )
+        const summaryItem = n.find(
+          (item) => typeof item === 'string' && item.startsWith('... [pruned'),
+        )
+
+        if (realItems.length > 1) {
+          const originalSize = realItems.length
+          const halfSize = Math.floor(originalSize / 2)
+          const keptItems = realItems.slice(0, halfSize)
+
+          let prunedTotal = originalSize - halfSize
+          if (summaryItem) {
+            const match = summaryItem.match(/\[pruned (\d+) items\]/)
+            if (match) prunedTotal += parseInt(match[1], 10)
+          }
+
+          changed = true
+          const result = [...keptItems.map(walk), `... [pruned ${prunedTotal} items]`]
+          return result
+        }
+        return n.map(walk)
       }
       if (typeof n === 'object' && n !== null) {
         const obj: any = {}
@@ -128,11 +150,12 @@ export class Budgeter {
       }
       return n
     }
-    return walk(node)
+    return { next: walk(node), changed }
   }
 
-  private static pruneOneLevel(node: any, budget: BudgetOptions): any {
+  private static pruneOneLevel(node: any, budget: BudgetOptions): { next: any; changed: boolean } {
     const essential = new Set(budget.essentialKeys ?? [])
+    let changed = false
 
     const getDepth = (n: any): number => {
       if (typeof n !== 'object' || n === null) return 0
@@ -143,40 +166,57 @@ export class Budgeter {
 
     const currentMaxDepth = getDepth(node)
     const targetDepth = Math.max(0, currentMaxDepth - 1)
-    let pruneHappened = false
 
     const walk = (n: any, currentDepth: number, path: string = ''): any => {
       if (typeof n !== 'object' || n === null) return n
 
       if (Array.isArray(n)) {
         const res = []
+        let pruneCount = 0
         for (let i = 0; i < n.length; i++) {
           const item = n[i]
           const subPath = `${path}.${i}`
 
-          if (!pruneHappened && currentDepth === targetDepth && !essential.has(subPath)) {
-            pruneHappened = true
+          // Skip summary strings from being pruned themselves if we are exactly at target depth
+          const isSummary =
+            typeof item === 'string' &&
+            (item.startsWith('... [pruned') || item.includes('hidden items'))
+
+          if (!isSummary && currentDepth === targetDepth && !essential.has(subPath)) {
+            pruneCount++
+            changed = true
             continue
           }
 
           const val = walk(item, currentDepth + 1, subPath)
           if (val !== undefined) res.push(val)
         }
+
+        if (pruneCount > 0) {
+          // Merge with existing prune summary if present
+          let totalPruned = pruneCount
+          const existingSummaryIdx = res.findIndex(
+            (it) => typeof it === 'string' && it.startsWith('... [pruned'),
+          )
+          if (existingSummaryIdx !== -1) {
+            const match = (res[existingSummaryIdx] as string).match(/\[pruned (\d+) items\]/)
+            if (match && match[1]) totalPruned += parseInt(match[1], 10)
+            res.splice(existingSummaryIdx, 1)
+          }
+          res.push(`... [pruned ${totalPruned} items]`)
+        }
         return res.length > 0 ? res : undefined
       }
 
       const obj: any = {}
       let hasKeys = false
+      let pruneCount = 0
       for (const [k, v] of Object.entries(n)) {
         const subPath = path ? `${path}.${k}` : k
 
-        if (
-          !pruneHappened &&
-          currentDepth === targetDepth &&
-          !essential.has(k) &&
-          !essential.has(subPath)
-        ) {
-          pruneHappened = true
+        if (currentDepth === targetDepth && !essential.has(k) && !essential.has(subPath)) {
+          pruneCount++
+          changed = true
           continue
         }
 
@@ -186,11 +226,16 @@ export class Budgeter {
           hasKeys = true
         }
       }
+      if (pruneCount > 0) {
+        obj['__straw_pruned'] = `[${pruneCount} hidden items]`
+        hasKeys = true
+      }
       return hasKeys ? obj : undefined
     }
 
     const result = walk(node, 0)
-    if (result === undefined) return Array.isArray(node) ? [] : {}
-    return result
+    let next = result
+    if (result === undefined) next = Array.isArray(node) ? [] : {}
+    return { next, changed }
   }
 }

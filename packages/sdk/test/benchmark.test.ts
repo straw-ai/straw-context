@@ -88,13 +88,14 @@ describe('Multi-Format Performance Comparison', () => {
       // 4. DMD (Budgeted & Secure)
       const { contextString: budgetStr } = distill(tc.data, {
         tokenCounter,
-        redactPII: true,
+        redactPII: {},
         budget: tc.budget ? { maxContextTokens: tc.budget } : undefined,
       })
       const budgetTokens = tokenCounter(budgetStr)
 
       const finalTokens = budgetTokens || dmdTokens
-      const reductionPercent = ((1 - finalTokens / rawTokens) * 100).toFixed(1)
+      const reductionRatio = 1 - finalTokens / rawTokens
+      const reductionDisplay = (reductionRatio * 100).toFixed(1)
 
       const row = [
         tc.name.padEnd(colWidths[0]),
@@ -102,7 +103,7 @@ describe('Multi-Format Performance Comparison', () => {
         String(yamlTokens).padStart(colWidths[2]),
         String(dmdTokens).padStart(colWidths[3]),
         (tc.budget ? `${budgetTokens} (max ${tc.budget})` : '-').padStart(colWidths[4]),
-        `${reductionPercent}%`.padStart(colWidths[5]),
+        `${reductionDisplay}%`.padStart(colWidths[5]),
       ].join(' | ')
 
       console.log(`| ${row} |`)

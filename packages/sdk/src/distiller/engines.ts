@@ -5,19 +5,23 @@ import {
   type ScrubberOptions,
   type FilterNodeCallback,
   type OutputFormat,
+  type RedactOptions,
 } from './types.js'
 
-// --- Engine A: The Heuristic Scrubber ---
-
-// --- Engine A: The Heuristic Scrubber ---
-
-// DEFAULT_NOISE_KEYS is now imported from constants.ts
-
-export { DEFAULT_NOISE_KEYS } from './constants.js'
+/**
+ * --- Engine A: The Heuristic Scrubber ---
+ * Unified pipeline for scrubbing, aliasing, and date formatting.
+ */
 
 const ISO_DATE_REGEX = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}(:?\d{2})?)$/
 const ID_REGEX =
   /\b([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}|[a-f0-9]{40}|[a-f0-9]{64}|[a-f0-9]{128})\b/gi
+
+// Hoisted Intl.RelativeTimeFormat for significant performance gains
+const RELATIVE_TIME_FORMATTER = new Intl.RelativeTimeFormat('en', {
+  numeric: 'always',
+  style: 'long',
+})
 
 function globToRegex(pattern: string): RegExp {
   // 1. Escape all regex special characters EXCEPT '*'
@@ -27,9 +31,12 @@ function globToRegex(pattern: string): RegExp {
   return new RegExp(`^${regexStr}$`)
 }
 
-// --- THE Unified PIPELINE ---
+/**
+ * Unified scrubber implementation.
+ * Performs a single pass over the input to scrub noise, alias IDs, and format dates.
+ */
 export function scrub(
-  input: any,
+  input: unknown,
   options: ScrubberOptions & {
     relativeDates?: boolean
     aliasIds?: boolean
@@ -37,12 +44,13 @@ export function scrub(
     filterNode?: FilterNodeCallback
   },
   reverseMap: Map<string, string>,
-  redactPII?: boolean | import('./types.js').RedactOptions,
-): any {
+  redactPII?: RedactOptions,
+): unknown {
   const mode = options.mode ?? 'blocklist'
   const allDropKeys = options.dropKeys || []
   const allPreserveKeys = options.preserveKeys || []
   const useDefaultFilter = options.useDefaultBlacklist ?? true
+  const pruneEmptyValues = options.pruneEmptyValues !== false
 
   const dropPatterns = allDropKeys.filter((k) => k.includes('*')).map(globToRegex)
   const dropLiterals = new Set(allDropKeys.filter((k) => !k.includes('*')))
@@ -53,32 +61,37 @@ export function scrub(
   const isMatched = (key: string, path: string, literals: Set<string>, patterns: RegExp[]) =>
     literals.has(key) || literals.has(path) || patterns.some((re) => re.test(key) || re.test(path))
 
-  const isPrefixMatch = (path: string) => {
-    return allPreserveKeys.some((pk) => {
-      if (pk === path) return true
-      if (pk.startsWith(path + '.')) return true
+  const isPrefixMatch = (path: string): boolean =>
+    allPreserveKeys.some((pk) => {
+      if (pk === path) {
+        return true
+      }
+      if (pk.startsWith(`${path}.`)) {
+        return true
+      }
       if (pk.includes('*')) {
         const parts = pk.split('.')
         const pathParts = path.split('.')
-        if (pathParts.length > parts.length) return false
-        for (let i = 0; i < pathParts.length; i++) {
-          if (parts[i] !== '*' && parts[i] !== pathParts[i]) return false
+
+        if (pathParts.length > parts.length) {
+          return false
         }
-        return true
+
+        return pathParts.every((part, i) => parts[i] === '*' || parts[i] === part)
       }
       return false
     })
-  }
 
   const shouldDrop = (key: string, path: string, isAllowedParent: boolean): boolean => {
     // 0. If parent was allow-listed, we don't drop anything unless explicitly blocked
     if (isAllowedParent) {
-      if (isMatched(key, path, dropLiterals, dropPatterns)) return true
-      return false
+      return isMatched(key, path, dropLiterals, dropPatterns)
     }
 
     // 1. PRESERVE wins everything (The "Punch-through" rule)
-    if (isMatched(key, path, preserveLiterals, preservePatterns)) return false
+    if (isMatched(key, path, preserveLiterals, preservePatterns)) {
+      return false
+    }
 
     // 2. If in allowlist mode, we drop if it's NOT a preserve and NOT a prefix
     if (mode === 'allowlist') {
@@ -86,10 +99,14 @@ export function scrub(
     }
 
     // 3. User's explicit DROP list
-    if (isMatched(key, path, dropLiterals, dropPatterns)) return true
+    if (isMatched(key, path, dropLiterals, dropPatterns)) {
+      return true
+    }
 
     // 4. System's DEFAULT list (if enabled)
-    if (useDefaultFilter && DEFAULT_NOISE_KEYS.has(key)) return true
+    if (useDefaultFilter && DEFAULT_NOISE_KEYS.has(key)) {
+      return true
+    }
 
     return false
   }
@@ -100,12 +117,12 @@ export function scrub(
 
   // THE SINGLE PASS WALKER (Scrub + Date + Alias)
   function walk(
-    node: any,
+    node: unknown,
     key: string = '',
     path: string = '',
     visited = new WeakSet(),
     isAllowedParent = false,
-  ): any {
+  ): unknown {
     // 0. Middleware Escape Hatch
     if (options.filterNode && key) {
       const decision = options.filterNode(key, node, path)
@@ -117,28 +134,40 @@ export function scrub(
     const currentAllowed = isAllowedParent || currentMatched
 
     // 1. Drop Logic
-    if (key) {
-      if (shouldDrop(key, path, isAllowedParent)) return undefined
+    if (key && shouldDrop(key, path, isAllowedParent)) {
+      return undefined
     }
 
     // 2. Primitives & Transforms
-    if (node === null || node === undefined || node === '') return undefined
+    // Only drop null/empty if pruneEmptyValues is true AND it's not explicitly preserved
+    if (node === null || node === undefined || node === '') {
+      if (pruneEmptyValues && !currentMatched) {
+        return undefined
+      }
+      return node
+    }
 
     if (typeof node === 'string') {
       let finalStr = node
+
       // Engine F: PII/PHI Redaction (String)
       if (redactPII) {
         finalStr = redactString(finalStr, redactPII, forwardMap, reverseMap, piiCounters, path)
       }
+
       // Engine E: Date formatting
       if (options.relativeDates !== false && ISO_DATE_REGEX.test(finalStr)) {
         finalStr = formatRelativeTime(finalStr, options.dateAnchor)
       }
+
       // Engine C: Aliasing
       if (options.aliasIds !== false) {
         finalStr = finalStr.replace(ID_REGEX, (match) => {
-          if (forwardMap.has(match)) return forwardMap.get(match)!
-          const alias = `$ID_${idCounter++}`
+          if (forwardMap.has(match)) {
+            return forwardMap.get(match)!
+          }
+          const alias = `$ID_${idCounter}`
+          idCounter += 1
           forwardMap.set(match, alias)
           reverseMap.set(alias, match)
           return alias
@@ -147,10 +176,14 @@ export function scrub(
       return finalStr
     }
 
-    if (typeof node !== 'object') return node
+    if (typeof node !== 'object') {
+      return node
+    }
 
     // 3. Objects & Arrays
-    if (visited.has(node)) throw new DistillError('Circular reference detected.')
+    if (visited.has(node)) {
+      throw new DistillError('Circular reference detected.')
+    }
     visited.add(node)
 
     if (Array.isArray(node)) {
@@ -166,32 +199,34 @@ export function scrub(
       return cleanedArray
     }
 
-    const cleanedObj: Record<string, any> = {}
-    let hasKeys = false
-
-    for (const [k, v] of Object.entries(node)) {
+    // Process Objects
+    const nodeRecord = node as Record<string, unknown>
+    const cleanedObj = Object.entries(nodeRecord).reduce<Record<string, unknown>>((acc, [k, v]) => {
       const subPath = path ? `${path}.${k}` : k
       const cleanedValue = walk(v, k, subPath, visited, currentAllowed)
 
-      if (cleanedValue === undefined) continue
+      if (cleanedValue === undefined) {
+        return acc
+      }
 
       // Engine A: Drop empty objects
       if (
         cleanedValue !== null &&
         typeof cleanedValue === 'object' &&
         !Array.isArray(cleanedValue) &&
-        Object.keys(cleanedValue).length === 0
+        Object.keys(cleanedValue as Record<string, unknown>).length === 0
       ) {
         // Unless it is explicitly preserved
         if (!isMatched(k, subPath, preserveLiterals, preservePatterns)) {
-          continue
+          return acc
         }
       }
 
-      cleanedObj[k] = cleanedValue
-      hasKeys = true
-    }
+      acc[k] = cleanedValue
+      return acc
+    }, {})
 
+    const hasKeys = Object.keys(cleanedObj).length > 0
     return hasKeys ? cleanedObj : undefined
   }
 
@@ -199,9 +234,14 @@ export function scrub(
   return result === undefined ? (Array.isArray(input) ? [] : {}) : result
 }
 
+/**
+ * Formats an ISO date string into a relative time string (e.g. "2 days ago").
+ */
 export function formatRelativeTime(isoString: string, anchor?: Date): string {
   const date = new Date(isoString)
-  if (isNaN(date.getTime())) return isoString
+  if (Number.isNaN(date.getTime())) {
+    return isoString
+  }
 
   const now = anchor ?? new Date()
   const diffInMs = date.getTime() - now.getTime()
@@ -214,28 +254,49 @@ export function formatRelativeTime(isoString: string, anchor?: Date): string {
   const months = Math.round(days / 30)
   const years = Math.round(days / 365)
 
-  const formatter = new Intl.RelativeTimeFormat('en', { numeric: 'always', style: 'long' })
+  if (years > 0) return RELATIVE_TIME_FORMATTER.format(Math.sign(diffInMs) * years, 'year')
+  if (months > 0) return RELATIVE_TIME_FORMATTER.format(Math.sign(diffInMs) * months, 'month')
+  if (days > 0) return RELATIVE_TIME_FORMATTER.format(Math.sign(diffInMs) * days, 'day')
+  if (hours > 0) return RELATIVE_TIME_FORMATTER.format(Math.sign(diffInMs) * hours, 'hour')
+  if (minutes > 0) return RELATIVE_TIME_FORMATTER.format(Math.sign(diffInMs) * minutes, 'minute')
 
-  if (years > 0) return formatter.format(Math.sign(diffInMs) * years, 'year')
-  if (months > 0) return formatter.format(Math.sign(diffInMs) * months, 'month')
-  if (days > 0) return formatter.format(Math.sign(diffInMs) * days, 'day')
-  if (hours > 0) return formatter.format(Math.sign(diffInMs) * hours, 'hour')
-  if (minutes > 0) return formatter.format(Math.sign(diffInMs) * minutes, 'minute')
-  return formatter.format(Math.sign(diffInMs) * seconds, 'second')
+  return RELATIVE_TIME_FORMATTER.format(Math.sign(diffInMs) * seconds, 'second')
 }
 
 // --- Engine B: The Middle-Out Truncator ---
 
-export function truncate(text: string, maxLength: number): string {
-  if (text.length <= maxLength) return text
+export function truncate(
+  text: string,
+  maxLength: number,
+  strategy: 'middle' | 'end' | 'start' = 'middle',
+): string {
+  if (text.length <= maxLength) {
+    return text
+  }
 
-  const keepChars = Math.floor(maxLength * 0.4)
-  const truncatedCount = text.length - keepChars * 2
+  if (strategy === 'middle') {
+    const keepChars = Math.floor(maxLength * 0.4)
+    const truncatedCount = text.length - keepChars * 2
+    const start = text.slice(0, keepChars)
+    const end = text.slice(-keepChars)
+    return `${start}...[${truncatedCount.toLocaleString()} chars truncated]...${end}`
+  }
 
-  const start = text.slice(0, keepChars)
-  const end = text.slice(-keepChars)
+  if (strategy === 'end') {
+    const keepChars = Math.floor(maxLength * 0.8)
+    const truncatedCount = text.length - keepChars
+    const start = text.slice(0, keepChars)
+    return `${start}...[${truncatedCount.toLocaleString()} chars truncated at end]`
+  }
 
-  return `${start}...[${truncatedCount.toLocaleString()} chars truncated]...${end}`
+  if (strategy === 'start') {
+    const keepChars = Math.floor(maxLength * 0.8)
+    const truncatedCount = text.length - keepChars
+    const end = text.slice(-keepChars)
+    return `[${truncatedCount.toLocaleString()} chars truncated at start]...${end}`
+  }
+
+  return text
 }
 
 // --- Engine D: DMD (Dense Markdown Data) Formatter ---
@@ -244,7 +305,7 @@ export function truncate(text: string, maxLength: number): string {
  * Universal Formatter Orchestrator
  */
 export function formatOutput(
-  input: any,
+  input: unknown,
   format: OutputFormat,
   options: { tableifyArrays: boolean; tableifyThreshold: number },
 ): string {
@@ -259,18 +320,22 @@ export function formatOutput(
   }
 }
 
-export function formatToXML(input: any): string {
-  function toXML(node: any, indent: number = 0): string {
+export function formatToXML(input: unknown): string {
+  function toXML(node: unknown, indent: number = 0): string {
     const spacing = '  '.repeat(indent)
 
     if (Array.isArray(node)) {
-      if (node.length === 0) return ''
+      if (node.length === 0) {
+        return ''
+      }
       return node.map((item) => `\n${spacing}<item>${toXML(item, indent + 1)}</item>`).join('')
     }
 
     if (typeof node === 'object' && node !== null) {
-      const entries = Object.entries(node)
-      if (entries.length === 0) return ''
+      const entries = Object.entries(node as Record<string, unknown>)
+      if (entries.length === 0) {
+        return ''
+      }
       return entries
         .map(([key, value]) => {
           const safeKey = key.replace(/[^a-zA-Z0-9_-]/g, '_')
@@ -296,19 +361,21 @@ function escapeXML(str: string): string {
     .replace(/'/g, '&apos;')
 }
 
-export function formatToJSON(input: any): string {
+export function formatToJSON(input: unknown): string {
   return JSON.stringify(input, null, 2)
 }
 
 export function formatToDMD(
-  input: any,
+  input: unknown,
   options: { tableifyArrays: boolean; tableifyThreshold: number },
 ): string {
-  function toMarkdown(node: any, indent: number = 0): string {
+  function toMarkdown(node: unknown, indent: number = 0): string {
     const spacing = '  '.repeat(indent)
 
     if (Array.isArray(node)) {
-      if (node.length === 0) return '[]'
+      if (node.length === 0) {
+        return '[]'
+      }
 
       // Attempt Table-ification
       if (
@@ -323,7 +390,7 @@ export function formatToDMD(
     }
 
     if (typeof node === 'object' && node !== null) {
-      return Object.entries(node)
+      return Object.entries(node as Record<string, unknown>)
         .map(([key, value]) => `\n${spacing}${key}: ${toMarkdown(value, indent + 1)}`)
         .join('')
     }
@@ -334,44 +401,45 @@ export function formatToDMD(
   return toMarkdown(input).trim()
 }
 
-function isArrayOfSimilarObjects(arr: any[]): boolean {
-  if (arr.length < 2) return false
+function isArrayOfSimilarObjects(arr: unknown[]): boolean {
+  if (arr.length < 2) {
+    return false
+  }
   const sample = arr.slice(0, 3)
 
   if (sample.some((s) => typeof s !== 'object' || s === null || Array.isArray(s))) {
     return false
   }
 
-  const keysSet = sample.map((s) => new Set(Object.keys(s)))
-  const firstKeys = Object.keys(sample[0])
+  const keysSet = sample.map((s) => new Set(Object.keys(s as Record<string, unknown>)))
+  const firstKeys = Object.keys(sample[0] as Record<string, unknown>)
 
-  for (let i = 1; i < sample.length; i++) {
-    const currentKeys = keysSet[i]
-    if (!currentKeys) continue
-
-    let overlapCount = 0
-    for (const key of firstKeys) {
-      if (currentKeys.has(key)) overlapCount++
-    }
-
+  return keysSet.slice(1).every((currentKeys) => {
+    const overlapCount = firstKeys.reduce(
+      (count, key) => (currentKeys.has(key) ? count + 1 : count),
+      0,
+    )
     const overlap = overlapCount / Math.max(firstKeys.length, 1)
-    if (overlap < 0.8) return false
-  }
-
-  return true
+    return overlap >= 0.8
+  })
 }
 
-function formatAsTable(arr: any[], indent: number): string {
+function formatAsTable(arr: unknown[], indent: number): string {
   const sample = arr.slice(0, 3)
-  const allKeys = Array.from(new Set(sample.flatMap((s) => Object.keys(s))))
+  const allKeys = Array.from(
+    new Set(sample.flatMap((s) => Object.keys(s as Record<string, unknown>))),
+  )
   const spacing = '  '.repeat(indent)
 
   const header = `| ${allKeys.join(' | ')} |`
   const separator = `| ${allKeys.map(() => '---').join(' | ')} |`
   const rows = arr.map((item) => {
+    const itemRecord = item as Record<string, unknown>
     const values = allKeys.map((k) => {
-      const val = item[k]
-      if (val === undefined || val === null) return ''
+      const val = itemRecord[k]
+      if (val === undefined || val === null) {
+        return ''
+      }
       const strVal = typeof val === 'object' ? JSON.stringify(val) : String(val)
       return strVal.replace(/\|/g, '\\|')
     })

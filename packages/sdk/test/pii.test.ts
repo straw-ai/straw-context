@@ -15,7 +15,7 @@ describe('Engine F: PII/PHI Redaction', () => {
       email2: 'bob@test.com',
       email3: 'alice@example.com',
     }
-    const res = distill(data, { redactPII: true })
+    const res = distill(data, { redactPII: {} })
 
     expect(res.contextString).toContain('<EMAIL_0>')
     expect(res.contextString).toContain('<EMAIL_1>')
@@ -31,7 +31,7 @@ describe('Engine F: PII/PHI Redaction', () => {
 
   it('redacts credit cards', () => {
     const data = { visa: 'My card is 4111-1111-1111-1111, do not steal' }
-    const res = distill(data, { redactPII: true })
+    const res = distill(data, { redactPII: {} })
     expect(res.contextString).toContain('<CREDIT_CARD_0>')
     expect(res.contextString).not.toContain('4111-1111-1111-1111')
   })
@@ -39,7 +39,7 @@ describe('Engine F: PII/PHI Redaction', () => {
   it('redacts common API keys', () => {
     const key = 'sk-123456789012345678901234567890123456789012345678'
     const data = { apiKey: key }
-    const res = distill(data, { redactPII: true })
+    const res = distill(data, { redactPII: {} })
 
     expect(res.contextString).toContain('<API_KEY_0>')
     expect(res.contextString).not.toContain(key)
@@ -48,7 +48,7 @@ describe('Engine F: PII/PHI Redaction', () => {
 
   it('allows enabling specific built-in types only', () => {
     const data = { email: 'test@example.com', phone: '555-555-5555' }
-    const res = distill(data, { redactPII: { enabled: true, types: ['email'] } })
+    const res = distill(data, { redactPII: { types: ['email'] } })
 
     expect(res.contextString).toContain('<EMAIL_0>')
     expect(res.contextString).toContain('555-555-5555') // phone should be preserved
@@ -58,7 +58,6 @@ describe('Engine F: PII/PHI Redaction', () => {
     const data = { internalId: 'USR-998877' }
     const res = distill(data, {
       redactPII: {
-        enabled: true,
         customRules: [
           {
             pattern: /USR-\d{6}/g,
@@ -81,7 +80,6 @@ describe('Engine F: PII/PHI Redaction', () => {
     const data = { user: { email: 'audit@test.com' } }
     distill(data, {
       redactPII: {
-        enabled: true,
         onRedact: (type, match, path) => {
           capturedType = type
           capturedMatch = match
@@ -102,21 +100,16 @@ describe('Engine F: PII/PHI Redaction', () => {
         { contacts: ['charlie@example.com'] },
       ],
     }
-    const res = distill(data, { redactPII: true })
+    const res = distill(data, { redactPII: {} })
     expect(res.contextString).not.toContain('alice@example.com')
     expect(res.contextString).toContain('<EMAIL_0>')
     expect(res.contextString).toContain('<EMAIL_1>')
     expect(res.contextString).toContain('<EMAIL_2>')
   })
 
-  it('skips everything when enabled: false even with custom rules', () => {
+  it('skips everything when redactPII is omitted', () => {
     const data = { apiKey: 'sk-123456789012345678901234567890123456789012345678' }
-    const res = distill(data, {
-      redactPII: {
-        enabled: false,
-        customRules: [{ pattern: /sk-\w+/g, replacement: '<KEY>' }],
-      },
-    })
+    const res = distill(data, {})
     expect(res.contextString).toContain('sk-')
   })
 
@@ -124,7 +117,7 @@ describe('Engine F: PII/PHI Redaction', () => {
     const data = {
       note: 'Contact alice@example.com or call 555-555-5555 for card 4111-1111-1111-1111',
     }
-    const res = distill(data, { redactPII: true })
+    const res = distill(data, { redactPII: {} })
     expect(res.contextString).toContain('<EMAIL_0>')
     expect(res.contextString).toContain('<CREDIT_CARD_0>')
     expect(res.contextString).not.toContain('alice@example.com')

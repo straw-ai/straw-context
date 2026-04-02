@@ -5,45 +5,55 @@ import type { DistillOptions, DistillResult, LLMProvider, OutputFormat } from '.
 
 export * from './types.js'
 export { presets } from './presets.js'
+export { ContextSession } from './session.js'
 
 export class ContextDistiller {
-  static distill(input: any, options: DistillOptions = {}): DistillResult {
+  /**
+   * Primary entry point for context minification.
+   * Orchestrates the multi-stage pipeline: Scrubber, Truncator, Budgeter, and Formatter.
+   *
+   * @param input The raw JSON object, Array, or String to minify.
+   * @param options Configuration for the distillation process.
+   * @returns Detailed result including the minified string and reduction statistics.
+   */
+  public static distill(input: unknown, options: DistillOptions = {}): DistillResult {
     const start = Date.now()
     const reverseMap = new Map<string, string>()
+    let originalTokens = 0
 
-    // 1. Input Guard (Pre-Processor)
-    let processed: any = input
+    let processed: unknown = input
     const guardEnabled = options.enableInputGuard !== false
 
+    // 1. Input Guard (Pre-Processor)
     if (guardEnabled) {
       const type = identifyInput(input)
-      if (type === 'unstructured') {
-        // Log Deduplication for plain text
-        processed = deduplicateLines(input as string, options.dedupe)
-      } else {
-        // Detect JSON strings inside structured data?
-        // For now, only top-level string auto-parsing is handled if input was a string.
-        processed = input
+
+      // Ensure input is actually a string before attempting string deduplication
+      if (type === 'unstructured' && typeof input === 'string') {
+        processed = deduplicateLines(input, options.dedupe)
       }
 
       // If it's a string, try to parse as JSON to move to the structured pipeline
       if (typeof processed === 'string') {
         const parsed = tryParseJSON(processed)
-        if (parsed) {
+
+        // BUG FIX: Prevent falsy JSON (like `0` or `false`) from failing the check
+        if (parsed !== null && parsed !== undefined) {
           processed = parsed
         } else {
-          // It's just plain text (e.g. logs), return early with minimal processing
-          const text = deduplicateLines(processed, options.dedupe)
+          // Unstructured plain text (e.g., logs). Result is already deduplicated.
+          // We return early as structured pipeline (scrubbing/truncating nodes) doesn't apply.
+          const textInput = String(input)
+          originalTokens = ContextDistiller.estimateTokens(textInput)
+          const distilledTokens = ContextDistiller.estimateTokens(processed)
+
           return {
-            contextString: text,
+            contextString: processed,
             reverseMap: new Map(),
             stats: {
-              originalTokens: ContextDistiller.estimateTokens(input as string),
-              distilledTokens: ContextDistiller.estimateTokens(text),
-              reductionPercent:
-                1 -
-                ContextDistiller.estimateTokens(text) /
-                  ContextDistiller.estimateTokens(input as string),
+              originalTokens,
+              distilledTokens,
+              reductionRatio: originalTokens > 0 ? 1 - distilledTokens / originalTokens : 0,
               durationMs: Date.now() - start,
             },
           }
@@ -52,11 +62,8 @@ export class ContextDistiller {
     }
 
     // 2. Initial Statistics (Original Tokens)
-    let originalTokens = 0
     const counter = options.tokenCounter ?? ContextDistiller.estimateTokens
-
-    // Apply Provider Defaults
-    const defaults = this.getOutputDefaults(options.targetProvider)
+    const defaults = ContextDistiller.getOutputDefaults(options.targetProvider)
     const format = options.outputFormat ?? defaults.outputFormat
 
     try {
@@ -79,7 +86,8 @@ export class ContextDistiller {
 
     // 4. Truncator (Engine B) - Applied recursively to strings
     const maxLen = options.maxStringLength ?? 1000
-    processed = this.recursiveTruncate(processed, maxLen)
+    const strategy = options.stringTruncationStrategy ?? 'middle'
+    processed = ContextDistiller.recursiveTruncate(processed, maxLen, strategy)
 
     // 5. Budgeting Pass
     if (options.budget) {
@@ -101,50 +109,55 @@ export class ContextDistiller {
       stats: {
         originalTokens,
         distilledTokens,
-        reductionPercent: originalTokens > 0 ? 1 - distilledTokens / originalTokens : 0,
+        reductionRatio: originalTokens > 0 ? 1 - distilledTokens / originalTokens : 0,
         durationMs: Date.now() - start,
       },
     }
   }
 
-  private static recursiveTruncate(node: any, maxLen: number): any {
+  private static recursiveTruncate(
+    node: unknown,
+    maxLen: number,
+    strategy: 'middle' | 'end' | 'start',
+  ): unknown {
     if (typeof node === 'string') {
-      return truncate(node, maxLen)
+      return truncate(node, maxLen, strategy)
     }
+
     if (Array.isArray(node)) {
-      return node.map((item) => this.recursiveTruncate(item, maxLen))
+      return node.map((item) => ContextDistiller.recursiveTruncate(item, maxLen, strategy))
     }
+
     if (typeof node === 'object' && node !== null) {
-      const newObj: Record<string, any> = {}
-      for (const [k, v] of Object.entries(node)) {
-        newObj[k] = this.recursiveTruncate(v, maxLen)
-      }
-      return newObj
+      // Replaced `for...of` with `Object.entries().reduce()` to comply with Airbnb standards
+      return Object.entries(node).reduce<Record<string, unknown>>((acc, [key, value]) => {
+        acc[key] = ContextDistiller.recursiveTruncate(value, maxLen, strategy)
+        return acc
+      }, {})
     }
+
     return node
   }
 
   private static estimateTokens(text: string): number {
-    if (!text) return 0
-    // Improved Heuristic: Approximates Byte-Pair Encoding (BPE) boundaries
-    // by chunking alphanumeric words and punctuation clusters.
-    // It remains 0-dependency to keep the SDK ultra-lightweight.
-    // For 100% precision, provide a real tokenizer via `options.tokenCounter`.
-
-    const chunks = text.match(/[\w]+|[^\w\s]+/g)
-    if (!chunks) return Math.ceil(text.length / 3.5)
-
-    let estimatedCount = 0
-    for (const chunk of chunks) {
-      // Long alphanumeric words usually get split into 3-4 char BPE sub-tokens
-      if (chunk.length > 4 && /\w/.test(chunk)) {
-        estimatedCount += Math.ceil(chunk.length / 4)
-      } else {
-        estimatedCount += 1 // Short words or punctuation blocks count as roughly 1 token
-      }
+    if (!text) {
+      return 0
     }
 
-    return estimatedCount
+    const chunks = text.match(/[\w]+|[^\w\s]+/g)
+    if (!chunks) {
+      return Math.ceil(text.length / 3.5)
+    }
+
+    // Replaced `for...of` with `.reduce()` to comply with Airbnb standards
+    return chunks.reduce((estimatedCount, chunk) => {
+      // Long alphanumeric words usually get split into 3-4 char BPE sub-tokens
+      if (chunk.length > 4 && /\w/.test(chunk)) {
+        return estimatedCount + Math.ceil(chunk.length / 4)
+      }
+      // Short words or punctuation blocks count as roughly 1 token
+      return estimatedCount + 1
+    }, 0)
   }
 
   private static getOutputDefaults(provider?: LLMProvider): { outputFormat: OutputFormat } {
@@ -163,6 +176,6 @@ export class ContextDistiller {
 /**
  * Main entry point for the ContextDistiller utility.
  */
-export function distill(input: any, options: DistillOptions = {}): DistillResult {
+export function distill(input: unknown, options: DistillOptions = {}): DistillResult {
   return ContextDistiller.distill(input, options)
 }

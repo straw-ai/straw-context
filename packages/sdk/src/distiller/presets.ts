@@ -1,7 +1,9 @@
-import type { ScrubberOptions } from './types.js'
+import type { DistillOptions } from './types.js'
 
-export const presets: Record<string, ScrubberOptions> = {
+export const presets: Record<string, DistillOptions> = {
   github: {
+    maxStringLength: 500, // Reasonable for dense PR data
+    tableifyThreshold: 3,
     dropKeys: [
       'node_id',
       'gravatar_id',
@@ -48,6 +50,7 @@ export const presets: Record<string, ScrubberOptions> = {
     ],
   },
   stripe: {
+    maxStringLength: 300,
     dropKeys: [
       'object', // Redundant if you know the resource
       'livemode', // Usually noise for integration logs

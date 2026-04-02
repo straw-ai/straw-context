@@ -36,10 +36,10 @@ describe('ContextDistiller Demo', () => {
     console.log('\n' + '='.repeat(20) + ' OUTPUT (DMD) ' + '='.repeat(20))
     console.log(result.contextString)
 
-    console.log('\n' + '='.repeat(20) + ' STATISTICS ' + '='.repeat(20))
     console.log(`Original Tokens (est):  ${result.stats.originalTokens}`)
     console.log(`Distilled Tokens (est): ${result.stats.distilledTokens}`)
-    console.log(`Reduction:              ${result.stats.reductionPercent}%`)
+    const reductionPercent = (result.stats.reductionRatio * 100).toFixed(1)
+    console.log(`Reduction:              ${reductionPercent}%`)
     console.log(`Aliased IDs:            ${result.reverseMap.size}`)
 
     if (result.reverseMap.size > 0) {

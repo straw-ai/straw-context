@@ -35,7 +35,7 @@ describe('Public API Surface', () => {
     expect(result).toHaveProperty('stats')
     expect(result.stats).toHaveProperty('originalTokens')
     expect(result.stats).toHaveProperty('distilledTokens')
-    expect(result.stats).toHaveProperty('reductionPercent')
+    expect(result.stats).toHaveProperty('reductionRatio')
     expect(result.stats).toHaveProperty('durationMs')
   })
 
@@ -47,8 +47,8 @@ describe('Public API Surface', () => {
       value: 'important',
     }
     const { stats } = distill(data)
-    expect(stats.reductionPercent).toBeGreaterThan(0)
-    expect(stats.reductionPercent).toBeLessThanOrEqual(1)
+    expect(stats.reductionRatio).toBeGreaterThan(0)
+    expect(stats.reductionRatio).toBeLessThanOrEqual(1)
   })
 
   it('stats.durationMs is a non-negative number', () => {
