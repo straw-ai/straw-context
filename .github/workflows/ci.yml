@@ -48,4 +48,6 @@ jobs:
 
       - name: Check for changesets
         if: github.event_name == 'pull_request'
-        run: pnpm changeset status
+        run: |
+          git fetch origin main:main
+          pnpm changeset status
