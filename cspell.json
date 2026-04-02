@@ -19,7 +19,12 @@
     "DMD",
     "tiktoken",
     "Aliaser",
-    "Distiller"
+    "Distiller",
+    "ified",
+    "HATEOAS",
+    "livemode",
+    "octocat",
+    "Nlcj"
   ],
   "ignorePaths": [
     "node_modules",

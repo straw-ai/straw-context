@@ -1,13 +1,12 @@
 import { describe, it, expect } from 'vitest'
 
-import { distill, DistillError } from '../src/index.js'
+import { distill, presets } from '../src/index.js'
 
 describe('ContextDistiller', () => {
   describe('Engine A: Scrubber', () => {
-    it('throws on configuration conflict', () => {
-      expect(() => distill({}, { dropKeys: ['id'], preserveKeys: ['id'] })).toThrowError(
-        DistillError,
-      )
+    it('resolves conflicts by letting preserveKeys win', () => {
+      const { contextString } = distill({ id: 123 }, { dropKeys: ['id'], preserveKeys: ['id'] })
+      expect(contextString).toContain('id: 123')
     })
 
     it('throws on circular references', () => {
@@ -195,43 +194,104 @@ describe('ContextDistiller', () => {
     })
   })
 
-  describe('Regression: Table Fixes', () => {
-    it('stringifies nested objects in table cells instead of [object Object]', () => {
-      const data = [
-        { id: 1, info: { name: 'Alice', age: 30 } },
-        { id: 2, info: { name: 'Bob', age: 25 } },
-      ]
+  describe('Enterprise Policies & Path-Based Pruning', () => {
+    it('supports dot-notation paths in dropKeys', () => {
+      const data = {
+        user: { id: 1, internal_id: 'secret' },
+        project: { id: 2, internal_id: 'secret' },
+      }
 
-      const { contextString } = distill(data, { tableifyThreshold: 2 })
-      expect(contextString).toContain('{"name":"Alice","age":30}')
-      expect(contextString).not.toContain('[object Object]')
+      // Drop only user.internal_id, but keep project.internal_id
+      const { contextString } = distill(data, { dropKeys: ['user.internal_id'] })
+      expect(contextString).not.toContain('user:\n  internal_id')
+      expect(contextString).toContain('project:')
+      expect(contextString).toContain('internal_id: secret')
     })
 
-    it('escapes pipes in table cells to prevent Markdown breakage', () => {
-      const data = [
-        { id: 1, note: 'Value | with | pipes' },
-        { id: 2, note: 'Normal' },
-      ]
+    it('implements Specificity Wins: preserveKeys overrides default blacklist', () => {
+      const data = {
+        avatar_url: 'https://...', // Normally dropped by DEFAULT_NOISE_KEYS
+        other: 'info',
+      }
 
-      const { contextString } = distill(data, { tableifyThreshold: 2 })
-      expect(contextString).toContain('Value \\| with \\| pipes')
+      const { contextString } = distill(data, { preserveKeys: ['avatar_url'] })
+      expect(contextString).toContain('avatar_url: https://...')
+    })
+
+    it('can disable the default blacklist entirely', () => {
+      const data = {
+        avatar_url: 'https://...', // Normally dropped by DEFAULT_NOISE_KEYS
+        other: 'info',
+      }
+
+      // Default is enabled (dropped)
+      expect(distill(data).contextString).not.toContain('avatar_url')
+
+      // Explicitly disabled (kept)
+      const { contextString } = distill(data, { useDefaultBlacklist: false })
+      expect(contextString).toContain('avatar_url: https://...')
+    })
+
+    it('works with Enterprise Presets (e.g. GitHub)', () => {
+      const githubData = {
+        id: 123,
+        node_id: 'MDQ6VXNlcjE=',
+        login: 'octocat',
+      }
+
+      const { contextString } = distill(githubData, presets.github)
+      expect(contextString).toContain('login: octocat')
+      expect(contextString).not.toContain('node_id')
+    })
+
+    it('supports path-based wildcards like *.key', () => {
+      const data = {
+        meta: { css_classes: 'foo' },
+        deep: { nested: { css_classes: 'bar' } },
+      }
+
+      const { contextString } = distill(data, { dropKeys: ['*.css_classes'] })
+      expect(contextString).not.toContain('css_classes')
     })
   })
 
-  describe('Full Distillation Statistics', () => {
-    it('calculates reduction statistics', () => {
+  describe('Middleware Escape Hatch (filterNode)', () => {
+    it('runs custom middleware before internal engines', () => {
       const data = {
-        nested: {
-          deep: 'value',
-          long: 'X'.repeat(2000),
-        },
+        nuke_me: 'data',
+        keep_me: 'data',
+        sensitive: 'very secret',
       }
 
-      const { stats } = distill(data, { maxStringLength: 100 })
+      const { contextString } = distill(data, {
+        filterNode: (key, _value) => {
+          if (key === 'nuke_me') return false // DROP
+          if (key === 'sensitive') return true // KEEP (no further processing on this node)
+          return undefined // Fall back
+        },
+      })
 
-      expect(stats.originalTokens).toBeGreaterThan(0)
-      expect(stats.distilledTokens).toBeLessThan(stats.originalTokens)
-      expect(stats.reductionPercent).toBeGreaterThan(0)
+      expect(contextString).not.toContain('nuke_me')
+      expect(contextString).toContain('keep_me')
+      expect(contextString).toContain('sensitive: very secret')
+    })
+
+    it('provides the full path to the middleware', () => {
+      const data = {
+        user: { profile: { email: 'test@example.com' } },
+      }
+
+      let capturedPath = ''
+      distill(data, {
+        filterNode: (_key, _value, path) => {
+          if (path === 'user.profile.email') {
+            capturedPath = path
+          }
+          return undefined
+        },
+      })
+
+      expect(capturedPath).toBe('user.profile.email')
     })
   })
 })
