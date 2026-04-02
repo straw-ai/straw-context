@@ -59,7 +59,7 @@ const { contextString, reverseMap } = distill(rawData, {
 // id: $ID_0
 ```
 
-## Benchmarks (ContextDistiller v2)
+## Benchmarks (ContextDistiller)
 
 | Format         | Tokens (GitHub PR) | Comparison vs. Raw |
 | :------------- | :----------------- | :----------------- |
