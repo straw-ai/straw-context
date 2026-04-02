@@ -10,5 +10,11 @@
   "arrowParens": "always",
   "sortImports": {},
   "sortPackageJson": {},
-  "ignorePatterns": ["**/dist/**", "**/build/**", "**/node_modules/**", "**/.next/**", "**/.turbo/**"]
+  "ignorePatterns": [
+    "**/dist/**",
+    "**/build/**",
+    "**/node_modules/**",
+    "**/.next/**",
+    "**/.turbo/**"
+  ]
 }

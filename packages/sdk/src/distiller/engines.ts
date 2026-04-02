@@ -189,7 +189,7 @@ export function truncate(text: string, maxLength: number): string {
 
 export function formatToDMD(
   input: any,
-  options: { tableifyArrays: boolean; tableifyThreshold: number },
+  options: { tableifyArrays: boolean; tableifyThreshold: number; tableifyTolerance: number },
 ): string {
   function toMarkdown(node: any, indent: number = 0): string {
     const spacing = '  '.repeat(indent)
@@ -201,7 +201,7 @@ export function formatToDMD(
       if (
         options.tableifyArrays &&
         node.length >= options.tableifyThreshold &&
-        isArrayOfSimilarObjects(node)
+        isArrayOfSimilarObjects(node, options.tableifyTolerance)
       ) {
         return formatAsTable(node, indent)
       }
@@ -221,7 +221,7 @@ export function formatToDMD(
   return toMarkdown(input).trim()
 }
 
-function isArrayOfSimilarObjects(arr: any[]): boolean {
+function isArrayOfSimilarObjects(arr: any[], tolerance: number): boolean {
   if (arr.length < 2) return false
   const sample = arr.slice(0, 3)
 
@@ -232,7 +232,7 @@ function isArrayOfSimilarObjects(arr: any[]): boolean {
   return sample.slice(1).every((s) => {
     const keys = new Set(Object.keys(s))
     const overlap = firstKeys.filter((k) => keys.has(k)).length / Math.max(firstKeys.length, 1)
-    return overlap >= 0.8
+    return overlap >= tolerance
   })
 }
 

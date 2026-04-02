@@ -51,6 +51,7 @@ export class ContextDistiller {
     const contextString = formatToDMD(processed, {
       tableifyArrays: options.tableifyArrays ?? true,
       tableifyThreshold: options.tableifyThreshold ?? 3,
+      tableifyTolerance: options.tableifyTolerance ?? 0.8,
     })
 
     return this.createResult(input, contextString, reverseMap, start, originalTokens)

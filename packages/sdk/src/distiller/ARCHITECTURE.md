@@ -50,7 +50,7 @@ The core transformation is handled by `distillPayload()`, which performs a singl
 ### 4. DMD Formatter (`engines.ts`)
 
 - `formatToDMD(input, options)`: Converts the processed object tree into indented Markdown.
-- `formatAsTable(arr, indent)`: Converts arrays with >80% key overlap into Markdown tables (Table-Sense).
+- `formatAsTable(arr, indent)`: Converts arrays with high key overlap into Markdown tables (Table-Sense). Threshold is configurable via `tableifyTolerance` (default: 80%).
 - **Robustness**: Handles nested objects and pipe symbol escaping to ensure valid Markdown output.
 
 ## DMD Format (Dense Markdown Data)

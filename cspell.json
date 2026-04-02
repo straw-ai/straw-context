@@ -24,7 +24,8 @@
     "HATEOAS",
     "livemode",
     "octocat",
-    "Nlcj"
+    "Nlcj",
+    "tableification"
   ],
   "ignorePaths": [
     "node_modules",

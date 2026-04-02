@@ -124,6 +124,20 @@ describe('ContextDistiller', () => {
       expect(contextString).not.toContain('| id |')
       expect(contextString).toContain('id: 1')
     })
+
+    it('respects tableifyTolerance (allows messy data in tables)', () => {
+      const messyData = [
+        { id: 1, name: 'Alice', extra: 'foo' },
+        { id: 2, name: 'Bob' }, // Only 66% overlap with keys of first object
+      ]
+
+      // Default (0.8) should not tableify
+      expect(distill(messyData, { tableifyThreshold: 2 }).contextString).not.toContain('| id |')
+
+      const { contextString } = distill(messyData, { tableifyThreshold: 2, tableifyTolerance: 0.5 })
+      expect(contextString).toContain('| id | name | extra |')
+      expect(contextString).toContain('| 2 | Bob |  |')
+    })
   })
 
   describe('Engine E: Date Formatter', () => {

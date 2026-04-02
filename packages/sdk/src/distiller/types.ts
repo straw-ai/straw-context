@@ -43,6 +43,8 @@ export interface DistillOptions extends ScrubberOptions {
   tableifyArrays?: boolean
   /** Minimum array length to trigger table conversion. Default: 3 */
   tableifyThreshold?: number
+  /** Minimum key-overlap percentage (0.0 to 1.0) to trigger tableification. Default: 0.8 */
+  tableifyTolerance?: number
   /** Enable UUID/SHA to short-pointer replacement. Default: true */
   enableAliasing?: boolean
   /** Convert ISO date strings to relative time (e.g. "2 days ago"). Default: true */
