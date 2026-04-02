@@ -24,7 +24,10 @@
     "HATEOAS",
     "livemode",
     "octocat",
-    "Nlcj"
+    "Nlcj",
+    "Redactions",
+    "baprs",
+    "pousr"
   ],
   "ignorePaths": [
     "node_modules",

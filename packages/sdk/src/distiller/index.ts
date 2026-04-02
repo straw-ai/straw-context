@@ -59,7 +59,7 @@ export class ContextDistiller {
       originalTokens = this.estimateTokens(String(processed))
     }
 
-    // 3. Unified Distillation Pass (Scrub + Date + Alias)
+    // 3. Unified Distillation Pass (Scrub + Date + Alias + PII)
     processed = scrub(
       processed,
       {
@@ -67,6 +67,7 @@ export class ContextDistiller {
         aliasIds: options.enableAliasing !== false,
       },
       reverseMap,
+      options.redactPII,
     )
 
     // 4. Truncator (Engine B) - Applied recursively to strings

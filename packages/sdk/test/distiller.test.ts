@@ -326,4 +326,67 @@ describe('ContextDistiller', () => {
       expect(capturedPath).toBe('user.profile.email')
     })
   })
+
+  describe('Enterprise: Zero-Trust (Allowlist Mode)', () => {
+    it('drops everything by default in allowlist mode', () => {
+      const data = { name: 'Alice', secret: '1234' }
+      const { contextString } = distill(data, { mode: 'allowlist' })
+      expect(contextString).toBe('')
+    })
+
+    it('only keeps explicitly preserved keys', () => {
+      const data = { name: 'Alice', secret: '1234' }
+      const { contextString } = distill(data, { mode: 'allowlist', preserveKeys: ['name'] })
+      expect(contextString).toBe('name: Alice')
+    })
+
+    it('correctly traverses paths to reach allowed keys', () => {
+      const data = {
+        user: {
+          profile: { name: 'Alice', bio: 'secret' },
+          id: 1,
+        },
+        other: 'noise',
+      }
+      const { contextString } = distill(data, {
+        mode: 'allowlist',
+        preserveKeys: ['user.profile.name'],
+      })
+      expect(contextString).toBe('user: \n  profile: \n    name: Alice')
+      expect(contextString).not.toContain('bio')
+      expect(contextString).not.toContain('other')
+    })
+
+    it('supports wildcards in allowlist mode', () => {
+      const data = {
+        items: [
+          { id: 1, val: 'A' },
+          { id: 2, val: 'B' },
+        ],
+        meta: 'noise',
+      }
+      const { contextString } = distill(data, {
+        mode: 'allowlist',
+        preserveKeys: ['items.*.val'],
+      })
+      expect(contextString).toContain('val: A')
+      expect(contextString).toContain('val: B')
+      expect(contextString).not.toContain('id')
+      expect(contextString).not.toContain('meta')
+    })
+
+    it('allows entire sub-trees if parent is preserved', () => {
+      const data = {
+        config: { theme: 'dark', layout: 'grid' },
+        user: 'Alice',
+      }
+      const { contextString } = distill(data, {
+        mode: 'allowlist',
+        preserveKeys: ['config'],
+      })
+      expect(contextString).toContain('theme: dark')
+      expect(contextString).toContain('layout: grid')
+      expect(contextString).not.toContain('Alice')
+    })
+  })
 })
