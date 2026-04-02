@@ -12,7 +12,15 @@ export interface ScrubberOptions {
   /**
    * If true, uses the built-in "System Default Policy" to drop noisy keys.
    * (e.g. __typename, _links, etc.)
-   * Default: true.
+   * 'blocklist': Drop elements explicitly listed in dropKeys/DEFAULT_NOISE.
+   * 'allowlist': Drop EVERYTHING unless it matches a preserveKey.
+   * Default: 'blocklist'
+   */
+  mode?: 'blocklist' | 'allowlist'
+  /**
+   * If true, uses the built-in "System Default Policy" to drop noisy keys.
+   * Only applicable in 'blocklist' mode.
+   * Default: true
    */
   useDefaultBlacklist?: boolean
   /** Default: false ([] has semantic meaning) */
@@ -28,6 +36,26 @@ export interface DedupeOptions {
   prefixLength?: number
   /** Number of lines to keep at start and end of a group. Default: 2 */
   contextBuffer?: number
+}
+
+export type PIIType = 'email' | 'phone' | 'credit-card' | 'api-key'
+
+export interface CustomRedactionRule {
+  /** The regex pattern to match. We recommend ensuring the 'g' flag is used. */
+  pattern: RegExp
+  /** The semantic token to replace it with (e.g., 'COMPANY_SECRET') */
+  replacement: string
+}
+
+export interface RedactOptions {
+  /** Whether redaction is enabled. Default: false */
+  enabled?: boolean
+  /** Which built-in types of PII to scrub. Default: all available */
+  types?: PIIType[]
+  /** Custom regex rules defined by the user */
+  customRules?: CustomRedactionRule[]
+  /** Lifecycle callback fired whenever PII/PHI is found and redacted */
+  onRedact?: (type: string, match: string, path: string) => void
 }
 
 /**
@@ -55,6 +83,8 @@ export interface DistillOptions extends ScrubberOptions {
   dateAnchor?: Date
   /** Custom middleware to run on every node before default engines. */
   filterNode?: FilterNodeCallback
+  /** Options for PII and PHI redaction. Default: false */
+  redactPII?: boolean | RedactOptions
 }
 
 export interface DistillResult {

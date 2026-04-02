@@ -1,4 +1,5 @@
 import { DEFAULT_NOISE_KEYS } from './constants.js'
+import { redactString } from './pii.js'
 import { DistillError, type ScrubberOptions, type FilterNodeCallback } from './types.js'
 
 // --- Engine A: The Heuristic Scrubber ---
@@ -31,7 +32,9 @@ export function scrub(
     filterNode?: FilterNodeCallback
   },
   reverseMap: Map<string, string>,
+  redactPII?: boolean | import('./types.js').RedactOptions,
 ): any {
+  const mode = options.mode ?? 'blocklist'
   const allDropKeys = options.dropKeys || []
   const allPreserveKeys = options.preserveKeys || []
   const useDefaultFilter = options.useDefaultBlacklist ?? true
@@ -45,14 +48,42 @@ export function scrub(
   const isMatched = (key: string, path: string, literals: Set<string>, patterns: RegExp[]) =>
     literals.has(key) || literals.has(path) || patterns.some((re) => re.test(key) || re.test(path))
 
-  const shouldDrop = (key: string, path: string): boolean => {
+  const isPrefixMatch = (path: string) => {
+    return allPreserveKeys.some((pk) => {
+      if (pk === path) return true
+      if (pk.startsWith(path + '.')) return true
+      if (pk.includes('*')) {
+        const parts = pk.split('.')
+        const pathParts = path.split('.')
+        if (pathParts.length > parts.length) return false
+        for (let i = 0; i < pathParts.length; i++) {
+          if (parts[i] !== '*' && parts[i] !== pathParts[i]) return false
+        }
+        return true
+      }
+      return false
+    })
+  }
+
+  const shouldDrop = (key: string, path: string, isAllowedParent: boolean): boolean => {
+    // 0. If parent was allow-listed, we don't drop anything unless explicitly blocked
+    if (isAllowedParent) {
+      if (isMatched(key, path, dropLiterals, dropPatterns)) return true
+      return false
+    }
+
     // 1. PRESERVE wins everything (The "Punch-through" rule)
     if (isMatched(key, path, preserveLiterals, preservePatterns)) return false
 
-    // 2. User's explicit DROP list
+    // 2. If in allowlist mode, we drop if it's NOT a preserve and NOT a prefix
+    if (mode === 'allowlist') {
+      return !isPrefixMatch(path)
+    }
+
+    // 3. User's explicit DROP list
     if (isMatched(key, path, dropLiterals, dropPatterns)) return true
 
-    // 3. System's DEFAULT list (if enabled)
+    // 4. System's DEFAULT list (if enabled)
     if (useDefaultFilter && DEFAULT_NOISE_KEYS.has(key)) return true
 
     return false
@@ -60,9 +91,16 @@ export function scrub(
 
   let idCounter = 0
   const forwardMap = new Map<string, string>()
+  const piiCounters: Record<string, number> = {}
 
   // THE SINGLE PASS WALKER (Scrub + Date + Alias)
-  function walk(node: any, key: string = '', path: string = '', visited = new WeakSet()): any {
+  function walk(
+    node: any,
+    key: string = '',
+    path: string = '',
+    visited = new WeakSet(),
+    isAllowedParent = false,
+  ): any {
     // 0. Middleware Escape Hatch
     if (options.filterNode && key) {
       const decision = options.filterNode(key, node, path)
@@ -70,9 +108,12 @@ export function scrub(
       if (decision === false) return undefined // EXPLICIT DROP
     }
 
-    // 1. Specificity Wins Logic
+    const currentMatched = key ? isMatched(key, path, preserveLiterals, preservePatterns) : false
+    const currentAllowed = isAllowedParent || currentMatched
+
+    // 1. Drop Logic
     if (key) {
-      if (shouldDrop(key, path)) return undefined
+      if (shouldDrop(key, path, isAllowedParent)) return undefined
     }
 
     // 2. Primitives & Transforms
@@ -80,6 +121,10 @@ export function scrub(
 
     if (typeof node === 'string') {
       let finalStr = node
+      // Engine F: PII/PHI Redaction (String)
+      if (redactPII) {
+        finalStr = redactString(finalStr, redactPII, forwardMap, reverseMap, piiCounters, path)
+      }
       // Engine E: Date formatting
       if (options.relativeDates !== false && ISO_DATE_REGEX.test(finalStr)) {
         finalStr = formatRelativeTime(finalStr, options.dateAnchor)
@@ -105,7 +150,9 @@ export function scrub(
 
     if (Array.isArray(node)) {
       const cleanedArray = node
-        .map((item, idx) => walk(item, String(idx), path ? `${path}.${idx}` : String(idx), visited))
+        .map((item, idx) =>
+          walk(item, String(idx), path ? `${path}.${idx}` : String(idx), visited, currentAllowed),
+        )
         .filter((v) => v !== undefined)
 
       if (cleanedArray.length === 0) {
@@ -119,7 +166,7 @@ export function scrub(
 
     for (const [k, v] of Object.entries(node)) {
       const subPath = path ? `${path}.${k}` : k
-      const cleanedValue = walk(v, k, subPath, visited)
+      const cleanedValue = walk(v, k, subPath, visited, currentAllowed)
 
       if (cleanedValue === undefined) continue
 
