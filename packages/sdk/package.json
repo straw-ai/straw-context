@@ -15,7 +15,8 @@
     "build": "tsup && tsc --emitDeclarationOnly",
     "test": "vitest run",
     "lint": "oxlint",
-    "format": "oxfmt --write ."
+    "format": "oxfmt --write .",
+    "format:check": "oxfmt --check ."
   },
   "devDependencies": {
     "@types/js-yaml": "^4.0.9",
