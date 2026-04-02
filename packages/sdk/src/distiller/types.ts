@@ -7,6 +7,17 @@ export interface ScrubberOptions {
   pruneEmptyArrays?: boolean
 }
 
+export interface DedupeOptions {
+  /** Toggle Semantic Line Deduplication. Default: true */
+  enabled?: boolean
+  /** Minimum consecutive lines to trigger deduplication. Default: 5 */
+  threshold?: number
+  /** Number of characters to compare at start of lines. Default: 15 */
+  prefixLength?: number
+  /** Number of lines to keep at start and end of a group. Default: 2 */
+  contextBuffer?: number
+}
+
 export interface DistillOptions extends ScrubberOptions {
   /** Hard cap on string values. Uses Middle-Out truncation. Default: 1000 */
   maxStringLength?: number
@@ -18,6 +29,10 @@ export interface DistillOptions extends ScrubberOptions {
   enableAliasing?: boolean
   /** Convert ISO date strings to relative time (e.g. "2 days ago"). Default: true */
   relativeDates?: boolean
+  /** Enable whole-pipeline pre-processing (JSON auto-parse + log dedupe). Default: true */
+  enableInputGuard?: boolean
+  /** Configuration for Semantic Line Deduplication */
+  dedupe?: DedupeOptions
 }
 
 export interface DistillResult {

@@ -9,37 +9,43 @@ export class ContextDistiller {
     const start = Date.now()
     const reverseMap = new Map<string, string>()
 
-    // 1. Input Guard: Identify and Normalize
-    let inputType = identifyInput(input)
-    let processed = input
+    // 1. Input Guard (Pre-Processor)
+    let processed: any = input
+    const guardEnabled = options.enableInputGuard !== false
 
-    // If string is JSON, switch to structured pipeline
-    if (inputType === 'unstructured') {
-      const parsed = tryParseJSON(input as string)
-      if (parsed) {
-        processed = parsed
-        inputType = 'structured'
+    if (guardEnabled) {
+      const type = identifyInput(input)
+      if (type === 'unstructured') {
+        // Log Deduplication for plain text
+        processed = deduplicateLines(input as string, options.dedupe)
+      } else {
+        // Detect JSON strings inside structured data? 
+        // For now, only top-level string auto-parsing is handled if input was a string.
+        processed = input
       }
-    }
 
-    if (inputType === 'unstructured') {
-      // --- Unstructured Pipeline (Logs / Plain Text) ---
-      let text = processed as string
-      text = deduplicateLines(text)
-      text = truncate(text, options.maxStringLength ?? 5000)
-
-      return {
-        contextString: text,
-        reverseMap,
-        stats: {
-          originalTokens: ContextDistiller.estimateTokens(input as string),
-          distilledTokens: ContextDistiller.estimateTokens(text),
-          reductionPercent:
-            1 -
-            ContextDistiller.estimateTokens(text) /
-              ContextDistiller.estimateTokens(input as string),
-          durationMs: Date.now() - start,
-        },
+      // If it's a string, try to parse as JSON to move to the structured pipeline
+      if (typeof processed === 'string') {
+        const parsed = tryParseJSON(processed)
+        if (parsed) {
+          processed = parsed
+        } else {
+          // It's just plain text (e.g. logs), return early with minimal processing
+          const text = deduplicateLines(processed, options.dedupe)
+          return {
+            contextString: text,
+            reverseMap: new Map(),
+            stats: {
+              originalTokens: ContextDistiller.estimateTokens(input as string),
+              distilledTokens: ContextDistiller.estimateTokens(text),
+              reductionPercent:
+                1 -
+                ContextDistiller.estimateTokens(text) /
+                  ContextDistiller.estimateTokens(input as string),
+              durationMs: Date.now() - start,
+            },
+          }
+        }
       }
     }
 
