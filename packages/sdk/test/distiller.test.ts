@@ -183,6 +183,38 @@ describe('ContextDistiller', () => {
       expect(contextString).toContain('Starting server')
       expect(contextString).toContain('Server idle')
     })
+    it('respects custom deduplication threshold', () => {
+      const logs = [
+        '[INFO] Identical prefix...',
+        '[INFO] Identical prefix...',
+        '[INFO] Identical prefix...',
+        '[INFO] Identical prefix...',
+      ].join('\n')
+
+      // Default threshold is 5, so 4 lines shouldn't dedupe by default
+      const { contextString: defaultOut } = distill(logs)
+      expect(defaultOut).not.toContain('deduplicated')
+
+      // Set threshold to 2, it should now dedupe
+      const { contextString: customOut } = distill(logs, {
+        dedupe: { threshold: 2, contextBuffer: 1, prefixLength: 10 },
+      })
+      expect(customOut).toContain('lines with prefix "[INFO] Ide" deduplicated')
+    })
+
+    it('can disable deduplication via config', () => {
+      const logs = Array(10).fill('[INFO] Repeat').join('\n')
+      const { contextString } = distill(logs, { dedupe: { enabled: false } })
+      expect(contextString).not.toContain('deduplicated')
+      expect(contextString.split('\n').length).toBe(10)
+    })
+
+    it('can disable the entire Input Guard', () => {
+      const json = JSON.stringify({ hello: 'world' })
+      // With guard disabled, it shouldn't auto-parse JSON, should treat as plain text
+      const { contextString } = distill(json, { enableInputGuard: false })
+      expect(contextString).toBe(json)
+    })
 
     it('detects tables with 80% key overlap (Table-Sense)', () => {
       const data = [
