@@ -25,9 +25,15 @@
     "cspell": "^9.7.0",
     "cz-conventional-changelog": "^3.3.0",
     "husky": "^9.1.7",
+    "lint-staged": "^16.4.0",
     "oxfmt": "^0.42.0",
     "turbo": "^2.1.2",
     "vitest": "^4.1.2"
+  },
+  "lint-staged": {
+    "*.{ts,js,json,md}": [
+      "oxfmt --write"
+    ]
   },
   "config": {
     "commitizen": {
