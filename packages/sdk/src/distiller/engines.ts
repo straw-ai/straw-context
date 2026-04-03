@@ -45,6 +45,7 @@ export function scrub(
   },
   reverseMap: Map<string, string>,
   redactPII?: RedactOptions,
+  warnings?: string[],
 ): unknown {
   const mode = options.mode ?? 'blocklist'
   const allDropKeys = options.dropKeys || []
@@ -213,7 +214,10 @@ export function scrub(
 
     // 3. Objects & Arrays
     if (visited.has(node)) {
-      throw new DistillError('Circular reference detected.')
+      if (warnings) {
+        warnings.push(`Circular reference detected at path: "${path || '(root)'}". Node pruned.`)
+      }
+      return undefined
     }
     visited.add(node)
 

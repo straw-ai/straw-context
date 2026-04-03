@@ -490,4 +490,33 @@ describe('ContextDistiller', () => {
       expect(stats.distilledTokens).toBeLessThanOrEqual(30)
     })
   })
+
+  describe('Enterprise: Graceful Circular Reference Handling', () => {
+    it('does NOT throw and prunes circular nodes in Scrubber', () => {
+      const data: any = { name: 'Alice' }
+      data.self = data // Circular!
+
+      const { contextString, warnings } = distill(data, { tokenCounter: estimateTokens })
+
+      expect(contextString).toBe('name: Alice')
+      expect(warnings).toBeDefined()
+      expect(warnings![0]).toContain('Circular reference detected at path: "self"')
+    })
+
+    it('handles circularity in the Truncator engine', () => {
+      const data: any = { name: 'Alice', long: 'A'.repeat(100) }
+      data.child = { parent: data } // Deep circular
+
+      const { contextString, warnings } = distill(data, {
+        maxStringLength: 50,
+        tokenCounter: estimateTokens,
+      })
+
+      // The parent link in the child will be pruned
+      expect(contextString).toContain('name: Alice')
+      expect(contextString).toContain('long: AAAA')
+      expect(warnings).toBeDefined()
+      expect(warnings!.some((w) => w.includes('Circular reference detected'))).toBe(true)
+    })
+  })
 })

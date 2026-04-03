@@ -11,19 +11,49 @@ function recursiveTruncate(
   node: unknown,
   maxLen: number,
   strategy: 'middle' | 'end' | 'start',
+  visited = new WeakSet(),
+  path = '',
+  warnings?: string[],
 ): unknown {
   if (typeof node === 'string') {
     return truncate(node, maxLen, strategy)
   }
 
   if (Array.isArray(node)) {
-    return node.map((item) => recursiveTruncate(item, maxLen, strategy))
+    if (visited.has(node)) {
+      if (warnings) {
+        warnings.push(
+          `Circular reference detected at path: "${path || '(root)'}". Node pruned in Truncator.`,
+        )
+      }
+      return undefined
+    }
+    visited.add(node)
+    return node
+      .map((item, idx) =>
+        recursiveTruncate(item, maxLen, strategy, visited, `${path}[${idx}]`, warnings),
+      )
+      .filter((v) => v !== undefined)
   }
 
   if (typeof node === 'object' && node !== null) {
+    if (visited.has(node)) {
+      if (warnings) {
+        warnings.push(
+          `Circular reference detected at path: "${path || '(root)'}". Node pruned in Truncator.`,
+        )
+      }
+      return undefined
+    }
+    visited.add(node)
+
     // Replaced `for...of` with `Object.entries().reduce()` to comply with Airbnb standards
     return Object.entries(node).reduce<Record<string, unknown>>((acc, [key, value]) => {
-      acc[key] = recursiveTruncate(value, maxLen, strategy)
+      const subPath = path ? `${path}.${key}` : key
+      const cleaned = recursiveTruncate(value, maxLen, strategy, visited, subPath, warnings)
+      if (cleaned !== undefined) {
+        acc[key] = cleaned
+      }
       return acc
     }, {})
   }
@@ -175,6 +205,8 @@ export function distill(input: unknown, options: DistillOptions = {}): DistillRe
     originalTokens = counter(String(processed))
   }
 
+  const warnings: string[] = []
+
   // 4. Unified Distillation Pass (Scrub + Date + Alias + PII)
   processed = scrub(
     processed,
@@ -184,21 +216,22 @@ export function distill(input: unknown, options: DistillOptions = {}): DistillRe
     },
     reverseMap,
     activeOptions.redactPII,
+    warnings,
   )
 
   // 5. Truncator (Engine B) - Applied recursively to strings
   const { maxStringLength: maxLen, stringTruncationStrategy: strategy = 'middle' } = activeOptions
   if (maxLen !== undefined && maxLen > 0) {
-    processed = recursiveTruncate(processed, maxLen, strategy)
+    processed = recursiveTruncate(processed, maxLen, strategy, new WeakSet(), '', warnings)
   }
-
-  let warnings: string[] | undefined
 
   // 6. Budgeting Pass
   if (activeOptions.budget) {
     const budgetResult = Budgeter.prune(processed, activeOptions, counter, format)
     processed = budgetResult.node
-    warnings = budgetResult.warnings
+    if (budgetResult.warnings) {
+      warnings.push(...budgetResult.warnings)
+    }
   }
 
   // 7. Formatter (Engine D - Optimized for LLM)

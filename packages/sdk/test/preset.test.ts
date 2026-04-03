@@ -83,7 +83,7 @@ describe('Enterprise: Intelligent Preset Merging', () => {
 
   it('deeply merges nested blocks like budget', () => {
     const data = { secret: 'top secret', noise: 'X'.repeat(100) }
-    
+
     // Hypothetical situation: preset defines a strategy, user defines a limit
     // Note: presets currently don't have budget, but we can mock a merge test
     const { contextString } = distill(data, {
