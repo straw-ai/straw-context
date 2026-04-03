@@ -29,7 +29,14 @@ describe('ContextDistiller Demo', () => {
       ],
     }
 
-    const result = distill(input, { tokenCounter: estimateTokens })
+    const result = distill(input, {
+      tokenCounter: estimateTokens,
+      enableAliasing: true,
+      tableifyArrays: true,
+      relativeDates: true,
+      maxStringLength: 100,
+      stringTruncationStrategy: 'middle',
+    })
 
     console.log('\n' + '='.repeat(20) + ' INPUT ' + '='.repeat(20))
     console.log(JSON.stringify(input, null, 2))
