@@ -93,6 +93,11 @@ export type OutputFormat = 'dmd' | 'xml' | 'json'
 export type FilterNodeCallback = (key: string, value: any, path: string) => boolean | undefined
 
 export interface DistillOptions extends ScrubberOptions {
+  /** 
+   * Name of one or more pre-defined configuration templates (e.g. 'github', 'stripe', 'graphql').
+   * If provided as an array, presets are merged in order.
+   */
+  preset?: string | string[]
   /** Hard cap on string values. Disabled by default. */
   maxStringLength?: number
   /** Strategy for string truncation when maxStringLength is exceeded. @default 'middle' */

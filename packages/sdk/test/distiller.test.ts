@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 
-import { distill, presets } from '../src/index.js'
+import { distill } from '../src/index.js'
 
 describe('ContextDistiller', () => {
   describe('Engine A: Scrubber', () => {
@@ -257,7 +257,7 @@ describe('ContextDistiller', () => {
         login: 'octocat',
       }
 
-      const { contextString } = distill(githubData, presets.github)
+      const { contextString } = distill(githubData, { preset: 'github' })
       expect(contextString).toContain('login: octocat')
       expect(contextString).not.toContain('node_id')
     })

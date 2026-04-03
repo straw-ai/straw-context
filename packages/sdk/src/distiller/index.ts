@@ -3,8 +3,10 @@ import { scrub, truncate, formatOutput } from './engines.js'
 import { identifyInput, tryParseJSON, deduplicateLines } from './preprocessor.js'
 import type { DistillOptions, DistillResult, LLMProvider, OutputFormat } from './types.js'
 
+import { presets } from './presets.js'
+
 export * from './types.js'
-export { presets } from './presets.js'
+export { presets }
 function recursiveTruncate(
   node: unknown,
   maxLen: number,
@@ -62,6 +64,34 @@ function getOutputDefaults(provider?: LLMProvider): { outputFormat: OutputFormat
   }
 }
 
+function mergeOptions(base: DistillOptions, ext: DistillOptions): DistillOptions {
+  const result: any = { ...base, ...ext }
+
+  // Array concatenation for scrubber keys
+  const arrayKeys: (keyof DistillOptions)[] = ['dropKeys', 'preserveKeys']
+  for (const key of arrayKeys) {
+    if (base[key] || ext[key]) {
+      result[key] = [
+        ...(Array.isArray(base[key]) ? (base[key] as string[]) : []),
+        ...(Array.isArray(ext[key]) ? (ext[key] as string[]) : []),
+      ]
+    }
+  }
+
+  // Object merging for nested configuration blocks
+  if (base.dedupe || ext.dedupe) {
+    result.dedupe = { ...base.dedupe, ...ext.dedupe }
+  }
+  if (base.redactPII || ext.redactPII) {
+    result.redactPII = { ...base.redactPII, ...ext.redactPII }
+  }
+  if (base.budget || ext.budget) {
+    result.budget = { ...base.budget, ...ext.budget }
+  }
+
+  return result
+}
+
 /**
  * Primary entry point for context minification.
  * Orchestrates the multi-stage pipeline: Scrubber, Truncator, Budgeter, and Formatter.
@@ -71,20 +101,36 @@ function getOutputDefaults(provider?: LLMProvider): { outputFormat: OutputFormat
  * @returns Detailed result including the minified string and reduction statistics.
  */
 export function distill(input: unknown, options: DistillOptions = {}): DistillResult {
+  let activeOptions = { ...options }
+
+  // 0. Resolve Presets
+  if (options.preset) {
+    const presetNames = Array.isArray(options.preset) ? options.preset : [options.preset]
+    let mergedPresets: DistillOptions = {}
+    for (const name of presetNames) {
+      const p = (presets as Record<string, DistillOptions>)[name]
+      if (p) {
+        mergedPresets = mergeOptions(mergedPresets, p)
+      }
+    }
+    // Presets act as the base, user-provided options extend/override them via intelligent merge
+    activeOptions = mergeOptions(mergedPresets, options)
+  }
+
   const start = Date.now()
   const reverseMap = new Map<string, string>()
   let originalTokens = 0
 
   let processed: unknown = input
 
-  // 0. Deduplication (Unstructured Strings)
+  // 1. Deduplication (Unstructured Strings)
   if (typeof processed === 'string') {
-    processed = deduplicateLines(processed, options.dedupe)
+    processed = deduplicateLines(processed, activeOptions.dedupe)
   }
 
-  const guardEnabled = options.enableInputGuard !== false
+  const guardEnabled = activeOptions.enableInputGuard !== false
 
-  // 1. Input Guard (Pre-Processor)
+  // 2. Input Guard (Pre-Processor)
   if (guardEnabled) {
     identifyInput(input)
 
@@ -116,10 +162,10 @@ export function distill(input: unknown, options: DistillOptions = {}): DistillRe
     }
   }
 
-  // 2. Initial Statistics (Original Tokens)
-  const counter = options.tokenCounter ?? estimateTokens
-  const defaults = getOutputDefaults(options.targetProvider)
-  const format = options.outputFormat ?? defaults.outputFormat
+  // 3. Initial Statistics (Original Tokens)
+  const counter = activeOptions.tokenCounter ?? estimateTokens
+  const defaults = getOutputDefaults(activeOptions.targetProvider)
+  const format = activeOptions.outputFormat ?? defaults.outputFormat
 
   try {
     const originalString = JSON.stringify(processed)
@@ -128,39 +174,39 @@ export function distill(input: unknown, options: DistillOptions = {}): DistillRe
     originalTokens = counter(String(processed))
   }
 
-  // 3. Unified Distillation Pass (Scrub + Date + Alias + PII)
+  // 4. Unified Distillation Pass (Scrub + Date + Alias + PII)
   processed = scrub(
     processed,
     {
-      ...options,
-      aliasIds: options.enableAliasing === true,
+      ...activeOptions,
+      aliasIds: activeOptions.enableAliasing === true,
     },
     reverseMap,
-    options.redactPII,
+    activeOptions.redactPII,
   )
 
-  // 4. Truncator (Engine B) - Applied recursively to strings
-  const { maxStringLength: maxLen, stringTruncationStrategy: strategy = 'middle' } = options
+  // 5. Truncator (Engine B) - Applied recursively to strings
+  const { maxStringLength: maxLen, stringTruncationStrategy: strategy = 'middle' } = activeOptions
   if (maxLen !== undefined && maxLen > 0) {
     processed = recursiveTruncate(processed, maxLen, strategy)
   }
 
   let warnings: string[] | undefined
 
-  // 5. Budgeting Pass
-  if (options.budget) {
-    const budgetResult = Budgeter.prune(processed, options, counter, format)
+  // 6. Budgeting Pass
+  if (activeOptions.budget) {
+    const budgetResult = Budgeter.prune(processed, activeOptions, counter, format)
     processed = budgetResult.node
     warnings = budgetResult.warnings
   }
 
-  // 6. Formatter (Engine D - Optimized for LLM)
+  // 7. Formatter (Engine D - Optimized for LLM)
   const contextString = formatOutput(processed, format, {
-    tableifyArrays: options.tableifyArrays ?? false,
-    tableifyThreshold: options.tableifyThreshold ?? 3,
+    tableifyArrays: activeOptions.tableifyArrays ?? false,
+    tableifyThreshold: activeOptions.tableifyThreshold ?? 3,
   })
 
-  // 7. Final Statistics
+  // 8. Final Statistics
   const distilledTokens = counter(contextString)
 
   return {
