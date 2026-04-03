@@ -13,7 +13,6 @@ describe('ContextDistiller', () => {
       expect(contextString).toContain('id: 123')
     })
 
-
     it('removes universal noise, nulls, and empty strings', () => {
       const raw = {
         id: 123,
