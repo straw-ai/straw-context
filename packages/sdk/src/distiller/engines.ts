@@ -49,7 +49,7 @@ export function scrub(
   const mode = options.mode ?? 'blocklist'
   const allDropKeys = options.dropKeys || []
   const allPreserveKeys = options.preserveKeys || []
-  const useDefaultFilter = options.useDefaultBlacklist ?? true
+  const useDefaultFilter = options.useSystemBlocklist ?? options.useDefaultBlacklist ?? true
   const pruneEmptyValues = options.pruneEmptyValues !== false
 
   const dropPatterns = allDropKeys.filter((k) => k.includes('*')).map(globToRegex)

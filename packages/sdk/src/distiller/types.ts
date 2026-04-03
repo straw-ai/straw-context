@@ -17,11 +17,15 @@ export interface ScrubberOptions {
    */
   mode?: 'blocklist' | 'allowlist'
   /**
-   * If true, uses the built-in "System Default Policy" to drop noisy keys.
-   * Only applicable in 'blocklist' mode.
-   * @default true
+   * @deprecated Use `useSystemBlocklist` instead.
    */
   useDefaultBlacklist?: boolean
+  /**
+   * If true, uses the built-in "System Default Policy" to drop noisy keys.
+   * Only applicable when `mode` is 'blocklist'.
+   * @default true
+   */
+  useSystemBlocklist?: boolean
   /**
    * If true, drops null, undefined, or empty string values.
    * @default true

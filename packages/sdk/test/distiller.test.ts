@@ -201,6 +201,15 @@ describe('ContextDistiller', () => {
       expect(contextString).not.toContain('deduplicated')
       expect(contextString.split('\n').length).toBe(10)
     })
+
+    it('runs deduplication even if enableInputGuard is false', () => {
+      const logs = Array(10).fill('[INFO] Repeat').join('\n')
+      const { contextString } = distill(logs, {
+        enableInputGuard: false,
+        dedupe: { threshold: 2, contextBuffer: 1, prefixLength: 10 },
+      })
+      expect(contextString).toContain('deduplicated')
+    })
   })
 
   describe('Enterprise Policies & Path-Based Pruning', () => {
@@ -227,7 +236,7 @@ describe('ContextDistiller', () => {
       expect(contextString).toContain('avatar_url: https://...')
     })
 
-    it('can disable the default blacklist entirely', () => {
+    it('can disable the system blocklist entirely', () => {
       const data = {
         avatar_url: 'https://...', // Normally dropped by DEFAULT_NOISE_KEYS
         other: 'info',
@@ -237,7 +246,7 @@ describe('ContextDistiller', () => {
       expect(distill(data).contextString).not.toContain('avatar_url')
 
       // Explicitly disabled (kept)
-      const { contextString } = distill(data, { useDefaultBlacklist: false })
+      const { contextString } = distill(data, { useSystemBlocklist: false })
       expect(contextString).toContain('avatar_url: https://...')
     })
 

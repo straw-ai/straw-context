@@ -76,16 +76,17 @@ export function distill(input: unknown, options: DistillOptions = {}): DistillRe
   let originalTokens = 0
 
   let processed: unknown = input
+
+  // 0. Deduplication (Unstructured Strings)
+  if (typeof processed === 'string') {
+    processed = deduplicateLines(processed, options.dedupe)
+  }
+
   const guardEnabled = options.enableInputGuard !== false
 
   // 1. Input Guard (Pre-Processor)
   if (guardEnabled) {
-    const type = identifyInput(input)
-
-    // Ensure input is actually a string before attempting string deduplication
-    if (type === 'unstructured' && typeof input === 'string') {
-      processed = deduplicateLines(input, options.dedupe)
-    }
+    identifyInput(input)
 
     // If it's a string, try to parse as JSON to move to the structured pipeline
     if (typeof processed === 'string') {
