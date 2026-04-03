@@ -1,14 +1,10 @@
 import { describe, it, expect } from 'vitest'
 
-import { distill, ContextDistiller, presets } from '../src/index.js'
+import { distill, presets } from '../src/index.js'
 
 describe('Public API Surface', () => {
   it('exports distill as a function', () => {
     expect(typeof distill).toBe('function')
-  })
-
-  it('exports ContextDistiller class with static distill', () => {
-    expect(typeof ContextDistiller.distill).toBe('function')
   })
 
   it('exports presets object', () => {

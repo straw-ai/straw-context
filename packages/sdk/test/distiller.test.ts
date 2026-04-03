@@ -366,4 +366,27 @@ describe('ContextDistiller', () => {
       expect(contextString).not.toContain('Alice')
     })
   })
+
+  describe('Array Input (Data Accumulation)', () => {
+    it('distills multiple fragments as a unified payload', () => {
+      const fragments = [{ user: 'Alice' }, { user: 'Bob' }]
+
+      const { contextString } = distill(fragments)
+      expect(contextString).toContain('Alice')
+      expect(contextString).toContain('Bob')
+      // DMD format for arrays is '- \n  key: val' or similar depending on depth
+      expect(contextString).toMatch(/-[\s]+user: Alice/)
+      expect(contextString).toMatch(/-[\s]+user: Bob/)
+    })
+
+    it('honors collective budget across multiple fragments', () => {
+      const fragments = ['A'.repeat(50), 'B'.repeat(50)]
+
+      const { stats } = distill(fragments, {
+        budget: { maxContextTokens: 30 },
+        tokenCounter: (t) => t.length,
+      })
+      expect(stats.distilledTokens).toBeLessThanOrEqual(30)
+    })
+  })
 })
