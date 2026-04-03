@@ -120,8 +120,8 @@ export interface DistillOptions extends ScrubberOptions {
   filterNode?: FilterNodeCallback
   /** Options for PII and PHI redaction. Omit to disable. */
   redactPII?: RedactOptions
-  /** 
-   * Custom token counter function (e.g. using tiktoken). 
+  /**
+   * Custom token counter function (e.g. using tiktoken).
    * **MANDATORY** if `budget` is specified.
    */
   tokenCounter?: (text: string) => number

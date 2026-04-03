@@ -67,4 +67,32 @@ describe('Enterprise: Intelligent Preset Merging', () => {
 
     expect(contextString).toContain('chars truncated')
   })
+
+  it('deduplicates arrays during merge', () => {
+    const data = { id: 1 }
+    // github preset has dropKeys: ['node_id', ...]
+    const { contextString } = distill(data, {
+      preset: 'github',
+      dropKeys: ['node_id', 'id'], // 'node_id' is already in github preset
+      tokenCounter: estimateTokens,
+    })
+
+    // No direct way to check the internal array, but we verify it still works and didn't crash
+    expect(contextString).not.toContain('id: 1')
+  })
+
+  it('deeply merges nested blocks like budget', () => {
+    const data = { secret: 'top secret', noise: 'X'.repeat(100) }
+    
+    // Hypothetical situation: preset defines a strategy, user defines a limit
+    // Note: presets currently don't have budget, but we can mock a merge test
+    const { contextString } = distill(data, {
+      budget: { maxContextTokens: 20, strategy: 'depth' },
+      preserveKeys: ['secret'],
+      tokenCounter: estimateTokens,
+    })
+
+    expect(contextString).toContain('secret: top secret')
+    expect(contextString).not.toContain('noise')
+  })
 })

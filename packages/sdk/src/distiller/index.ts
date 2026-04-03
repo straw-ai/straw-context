@@ -31,7 +31,6 @@ function recursiveTruncate(
   return node
 }
 
-
 function getOutputDefaults(provider?: LLMProvider): { outputFormat: OutputFormat } {
   switch (provider) {
     case 'anthropic':
@@ -44,32 +43,45 @@ function getOutputDefaults(provider?: LLMProvider): { outputFormat: OutputFormat
   }
 }
 
-function mergeOptions(base: DistillOptions, ext: DistillOptions): DistillOptions {
-  const result: any = { ...base, ...ext }
+type GenericObject = Record<string, unknown>
 
-  // Array concatenation for scrubber keys
-  const arrayKeys: (keyof DistillOptions)[] = ['dropKeys', 'preserveKeys']
-  for (const key of arrayKeys) {
-    if (base[key] || ext[key]) {
-      result[key] = [
-        ...(Array.isArray(base[key]) ? (base[key] as string[]) : []),
-        ...(Array.isArray(ext[key]) ? (ext[key] as string[]) : []),
-      ]
+function isPlainObject(item: unknown): item is GenericObject {
+  return (
+    item !== null &&
+    typeof item === 'object' &&
+    !Array.isArray(item) &&
+    !(item instanceof Date) &&
+    !(item instanceof RegExp) &&
+    !(item instanceof Map) &&
+    !(item instanceof Set)
+  )
+}
+
+function mergeOptions<T extends object>(base: T, ext: T): T {
+  const result = { ...base } as Record<string, unknown>
+  const baseObj = base as Record<string, unknown>
+  const extObj = ext as Record<string, unknown>
+
+  for (const key in extObj) {
+    if (!Object.prototype.hasOwnProperty.call(extObj, key)) continue
+
+    const extVal = extObj[key]
+    const baseVal = baseObj[key]
+
+    if (Array.isArray(extVal)) {
+      // DEDUPLICATE arrays using Set
+      const baseArray = Array.isArray(baseVal) ? (baseVal as unknown[]) : []
+      result[key] = Array.from(new Set([...baseArray, ...extVal]))
+    } else if (isPlainObject(extVal) && isPlainObject(baseVal)) {
+      // Recursively merge nested config objects (e.g., budget.limits)
+      result[key] = mergeOptions(baseVal as object, extVal as object)
+    } else {
+      // Primitives, Dates, RegExps, Functions: User explicitly overwrites
+      result[key] = extVal
     }
   }
 
-  // Object merging for nested configuration blocks
-  if (base.dedupe || ext.dedupe) {
-    result.dedupe = { ...base.dedupe, ...ext.dedupe }
-  }
-  if (base.redactPII || ext.redactPII) {
-    result.redactPII = { ...base.redactPII, ...ext.redactPII }
-  }
-  if (base.budget || ext.budget) {
-    result.budget = { ...base.budget, ...ext.budget }
-  }
-
-  return result
+  return result as T
 }
 
 /**

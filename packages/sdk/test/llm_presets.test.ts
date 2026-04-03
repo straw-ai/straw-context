@@ -13,14 +13,22 @@ describe('Enterprise: Multi-LLM Output Optimization', () => {
   }
 
   it('defaults to DMD for OpenAI', () => {
-    const { contextString } = distill(data, { targetProvider: 'openai', enableAliasing: true, tokenCounter: estimateTokens })
+    const { contextString } = distill(data, {
+      targetProvider: 'openai',
+      enableAliasing: true,
+      tokenCounter: estimateTokens,
+    })
     expect(contextString).toContain('user:')
     expect(contextString).toContain('id: $ID_0')
     expect(contextString).not.toContain('<context>')
   })
 
   it('defaults to XML for Anthropic', () => {
-    const { contextString } = distill(data, { targetProvider: 'anthropic', enableAliasing: true, tokenCounter: estimateTokens })
+    const { contextString } = distill(data, {
+      targetProvider: 'anthropic',
+      enableAliasing: true,
+      tokenCounter: estimateTokens,
+    })
     expect(contextString).toContain('<context>')
     expect(contextString).toContain('<user>')
     expect(contextString).toContain('<id>$ID_0</id>')
@@ -29,7 +37,11 @@ describe('Enterprise: Multi-LLM Output Optimization', () => {
   })
 
   it('allows explicit JSON output override', () => {
-    const { contextString } = distill(data, { outputFormat: 'json', enableAliasing: true, tokenCounter: estimateTokens })
+    const { contextString } = distill(data, {
+      outputFormat: 'json',
+      enableAliasing: true,
+      tokenCounter: estimateTokens,
+    })
     // Should be a valid JSON string
     const parsed = JSON.parse(contextString)
     expect(parsed.user.id).toBe('$ID_0')

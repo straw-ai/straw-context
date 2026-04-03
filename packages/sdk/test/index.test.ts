@@ -63,8 +63,8 @@ describe('Public API Surface', () => {
   })
 
   it('throws error when budget is provided without tokenCounter', () => {
-    expect(() =>
-      distill({ test: 'data' }, { budget: { maxContextTokens: 100 } }),
-    ).toThrowError(/MUST be provided/)
+    expect(() => distill({ test: 'data' }, { budget: { maxContextTokens: 100 } })).toThrowError(
+      /MUST be provided/,
+    )
   })
 })
