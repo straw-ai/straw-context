@@ -27,7 +27,9 @@
     "Nlcj",
     "Redactions",
     "baprs",
-    "pousr"
+    "pousr",
+    "apos",
+    "tableification"
   ],
   "ignorePaths": [
     "node_modules",
@@ -37,6 +39,9 @@
     ".git",
     "pnpm-lock.yaml",
     ".changeset/*.md",
-    "package.json"
+    "package.json",
+    "**/test/**",
+    "**/*.test.ts",
+    "*.tsbuildinfo"
   ]
 }

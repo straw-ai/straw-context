@@ -1,19 +1,16 @@
 import { describe, it, expect } from 'vitest'
 
-import { distill, presets } from '../src/index.js'
+import { distill } from '../src/index.js'
+import { estimateTokens } from './estimate.js'
 
 describe('ContextDistiller', () => {
   describe('Engine A: Scrubber', () => {
     it('resolves conflicts by letting preserveKeys win', () => {
-      const { contextString } = distill({ id: 123 }, { dropKeys: ['id'], preserveKeys: ['id'] })
+      const { contextString } = distill(
+        { id: 123 },
+        { dropKeys: ['id'], preserveKeys: ['id'], tokenCounter: estimateTokens },
+      )
       expect(contextString).toContain('id: 123')
-    })
-
-    it('throws on circular references', () => {
-      const a: any = { name: 'A' }
-      a.self = a
-      // We catch either our custom error or the native JSON.stringify error depending on where it fails
-      expect(() => distill(a)).toThrow()
     })
 
     it('removes universal noise, nulls, and empty strings', () => {
@@ -26,7 +23,7 @@ describe('ContextDistiller', () => {
         valid: 'data',
       }
 
-      const { contextString } = distill(raw)
+      const { contextString } = distill(raw, { tokenCounter: estimateTokens })
       // Format: "id: 123\nvalid: data"
       expect(contextString).toContain('id: 123')
       expect(contextString).toContain('valid: data')
@@ -37,8 +34,10 @@ describe('ContextDistiller', () => {
     it('preserves empty arrays by default, but drops them if configured', () => {
       const raw = { data: [] }
 
-      expect(distill(raw).contextString).toBe('data: []')
-      expect(distill(raw, { pruneEmptyArrays: true }).contextString).toBe('')
+      expect(distill(raw, { tokenCounter: estimateTokens }).contextString).toBe('data: []')
+      expect(
+        distill(raw, { pruneEmptyArrays: true, tokenCounter: estimateTokens }).contextString,
+      ).toBe('')
     })
 
     it('supports wildcard pattern matching in dropKeys', () => {
@@ -49,7 +48,10 @@ describe('ContextDistiller', () => {
         external_data: 'ok',
       }
 
-      const { contextString } = distill(raw, { dropKeys: ['*_id', 'internal_*'] })
+      const { contextString } = distill(raw, {
+        dropKeys: ['*_id', 'internal_*'],
+        tokenCounter: estimateTokens,
+      })
       expect(contextString).not.toContain('user_id')
       expect(contextString).not.toContain('project_id')
       expect(contextString).not.toContain('secret')
@@ -63,7 +65,10 @@ describe('ContextDistiller', () => {
       }
 
       // __typename is normally dropped by UNIVERSAL_NOISE_KEYS
-      const { contextString } = distill(raw, { preserveKeys: ['__type*', 'important_*'] })
+      const { contextString } = distill(raw, {
+        preserveKeys: ['__type*', 'important_*'],
+        tokenCounter: estimateTokens,
+      })
       expect(contextString).toContain('__typename: Noise')
       expect(contextString).toContain('important_metadata: keep')
     })
@@ -73,7 +78,10 @@ describe('ContextDistiller', () => {
     it('truncates long strings middle-out', () => {
       // Use characters that aren't hex to avoid Aliaser (Engine C) matching them as IDs
       const longString = 'X'.repeat(100) + 'Y'.repeat(1000) + 'Z'.repeat(100)
-      const { contextString } = distill({ text: longString }, { maxStringLength: 100 })
+      const { contextString } = distill(
+        { text: longString },
+        { maxStringLength: 100, tokenCounter: estimateTokens },
+      )
 
       expect(contextString).toContain('...[')
       expect(contextString).toContain('chars truncated]...')
@@ -89,7 +97,10 @@ describe('ContextDistiller', () => {
       const uuid = '550e8400-e29b-41d4-a716-446655440000'
       const data = { user_id: uuid, meta: `Ref: ${uuid}` }
 
-      const { contextString, reverseMap } = distill(data)
+      const { contextString, reverseMap } = distill(data, {
+        enableAliasing: true,
+        tokenCounter: estimateTokens,
+      })
 
       expect(contextString).toContain('$ID_0')
       expect(contextString).not.toContain(uuid)
@@ -107,7 +118,11 @@ describe('ContextDistiller', () => {
         ],
       }
 
-      const { contextString } = distill(data, { tableifyThreshold: 3 })
+      const { contextString } = distill(data, {
+        tableifyArrays: true,
+        tableifyThreshold: 3,
+        tokenCounter: estimateTokens,
+      })
 
       expect(contextString).toContain('| id | name | role |')
       expect(contextString).toContain('| --- | --- | --- |')
@@ -120,7 +135,10 @@ describe('ContextDistiller', () => {
         { id: 2, name: 'Bob' },
       ]
 
-      const { contextString } = distill(data, { tableifyThreshold: 3 })
+      const { contextString } = distill(data, {
+        tableifyThreshold: 3,
+        tokenCounter: estimateTokens,
+      })
       expect(contextString).not.toContain('| id |')
       expect(contextString).toContain('id: 1')
     })
@@ -132,7 +150,7 @@ describe('ContextDistiller', () => {
       const fiveDaysAgo = new Date(now.getTime() - 5 * 86400 * 1000).toISOString()
       const data = { created: fiveDaysAgo }
 
-      const { contextString } = distill(data)
+      const { contextString } = distill(data, { relativeDates: true, tokenCounter: estimateTokens })
       expect(contextString).toContain('created: 5 days ago')
     })
 
@@ -141,7 +159,7 @@ describe('ContextDistiller', () => {
       const inTwoYears = new Date(now.getTime() + 2 * 31536000 * 1000).toISOString()
       const data = { expires: inTwoYears }
 
-      const { contextString } = distill(data)
+      const { contextString } = distill(data, { relativeDates: true, tokenCounter: estimateTokens })
       expect(contextString).toContain('expires: in 2 years')
     })
 
@@ -149,7 +167,10 @@ describe('ContextDistiller', () => {
       const date = '2024-03-31T00:00:00Z'
       const data = { date }
 
-      const { contextString } = distill(data, { relativeDates: false })
+      const { contextString } = distill(data, {
+        relativeDates: false,
+        tokenCounter: estimateTokens,
+      })
       expect(contextString).toContain(`date: ${date}`)
     })
 
@@ -158,7 +179,11 @@ describe('ContextDistiller', () => {
       const target = new Date('2026-03-30T10:00:00Z').toISOString() // 3 days before anchor
       const data = { event: target }
 
-      const { contextString } = distill(data, { dateAnchor: anchor })
+      const { contextString } = distill(data, {
+        relativeDates: true,
+        dateAnchor: anchor,
+        tokenCounter: estimateTokens,
+      })
       expect(contextString).toContain('event: 3 days ago')
     })
   })
@@ -166,14 +191,17 @@ describe('ContextDistiller', () => {
   describe('Input Guard & Configuration', () => {
     it('automatically parses valid JSON strings by default', () => {
       const json = JSON.stringify({ hello: 'world' })
-      const { contextString } = distill(json)
+      const { contextString } = distill(json, { tokenCounter: estimateTokens })
       expect(contextString).toBe('hello: world')
     })
 
     it('can disable the entire Input Guard', () => {
       const json = JSON.stringify({ hello: 'world' })
       // With guard disabled, it shouldn't auto-parse JSON, should treat as plain text
-      const { contextString } = distill(json, { enableInputGuard: false })
+      const { contextString } = distill(json, {
+        enableInputGuard: false,
+        tokenCounter: estimateTokens,
+      })
       expect(contextString).toBe(json)
     })
     it('respects custom deduplication threshold', () => {
@@ -185,44 +213,35 @@ describe('ContextDistiller', () => {
       ].join('\n')
 
       // Default threshold is 5, so 4 lines shouldn't dedupe by default
-      const { contextString: defaultOut } = distill(logs)
+      const { contextString: defaultOut } = distill(logs, { tokenCounter: estimateTokens })
       expect(defaultOut).not.toContain('deduplicated')
 
       // Set threshold to 2, it should now dedupe
       const { contextString: customOut } = distill(logs, {
         dedupe: { threshold: 2, contextBuffer: 1, prefixLength: 10 },
+        tokenCounter: estimateTokens,
       })
       expect(customOut).toContain('lines with prefix "[INFO] Ide" deduplicated')
     })
 
     it('can disable deduplication via config', () => {
       const logs = Array(10).fill('[INFO] Repeat').join('\n')
-      const { contextString } = distill(logs, { dedupe: { enabled: false } })
-      expect(contextString).not.toContain('deduplicated')
-      expect(contextString.split('\n').length).toBe(10)
-    })
-
-    it('can disable the entire Input Guard', () => {
-      const json = JSON.stringify({ hello: 'world' })
-      // With guard disabled, it shouldn't auto-parse JSON, should treat as plain text
-      const { contextString } = distill(json, { enableInputGuard: false })
-      expect(contextString).toBe(json)
-    })
-
-    it('deduplicates repetitive log lines with custom threshold', () => {
-      const logs = ['[INFO] Repeat', '[INFO] Repeat', '[INFO] Repeat'].join('\n')
-
       const { contextString } = distill(logs, {
-        dedupe: { threshold: 1, contextBuffer: 1, prefixLength: 10 },
+        dedupe: { enabled: false },
+        tokenCounter: estimateTokens,
       })
-      expect(contextString).toContain('lines with prefix "[INFO] Rep" deduplicated')
-    })
-
-    it('can disable deduplication via config', () => {
-      const logs = Array(10).fill('[INFO] Repeat').join('\n')
-      const { contextString } = distill(logs, { dedupe: { enabled: false } })
       expect(contextString).not.toContain('deduplicated')
       expect(contextString.split('\n').length).toBe(10)
+    })
+
+    it('runs deduplication even if enableInputGuard is false', () => {
+      const logs = Array(10).fill('[INFO] Repeat').join('\n')
+      const { contextString } = distill(logs, {
+        enableInputGuard: false,
+        dedupe: { threshold: 2, contextBuffer: 1, prefixLength: 10 },
+        tokenCounter: estimateTokens,
+      })
+      expect(contextString).toContain('deduplicated')
     })
   })
 
@@ -234,7 +253,10 @@ describe('ContextDistiller', () => {
       }
 
       // Drop only user.internal_id, but keep project.internal_id
-      const { contextString } = distill(data, { dropKeys: ['user.internal_id'] })
+      const { contextString } = distill(data, {
+        dropKeys: ['user.internal_id'],
+        tokenCounter: estimateTokens,
+      })
       expect(contextString).not.toContain('user:\n  internal_id')
       expect(contextString).toContain('project:')
       expect(contextString).toContain('internal_id: secret')
@@ -246,21 +268,29 @@ describe('ContextDistiller', () => {
         other: 'info',
       }
 
-      const { contextString } = distill(data, { preserveKeys: ['avatar_url'] })
+      const { contextString } = distill(data, {
+        preserveKeys: ['avatar_url'],
+        tokenCounter: estimateTokens,
+      })
       expect(contextString).toContain('avatar_url: https://...')
     })
 
-    it('can disable the default blacklist entirely', () => {
+    it('can disable the system blocklist entirely', () => {
       const data = {
         avatar_url: 'https://...', // Normally dropped by DEFAULT_NOISE_KEYS
         other: 'info',
       }
 
       // Default is enabled (dropped)
-      expect(distill(data).contextString).not.toContain('avatar_url')
+      expect(distill(data, { tokenCounter: estimateTokens }).contextString).not.toContain(
+        'avatar_url',
+      )
 
       // Explicitly disabled (kept)
-      const { contextString } = distill(data, { useDefaultBlacklist: false })
+      const { contextString } = distill(data, {
+        useSystemBlocklist: false,
+        tokenCounter: estimateTokens,
+      })
       expect(contextString).toContain('avatar_url: https://...')
     })
 
@@ -271,7 +301,10 @@ describe('ContextDistiller', () => {
         login: 'octocat',
       }
 
-      const { contextString } = distill(githubData, presets.github)
+      const { contextString } = distill(githubData, {
+        preset: 'github',
+        tokenCounter: estimateTokens,
+      })
       expect(contextString).toContain('login: octocat')
       expect(contextString).not.toContain('node_id')
     })
@@ -282,7 +315,10 @@ describe('ContextDistiller', () => {
         deep: { nested: { css_classes: 'bar' } },
       }
 
-      const { contextString } = distill(data, { dropKeys: ['*.css_classes'] })
+      const { contextString } = distill(data, {
+        dropKeys: ['*.css_classes'],
+        tokenCounter: estimateTokens,
+      })
       expect(contextString).not.toContain('css_classes')
     })
   })
@@ -296,6 +332,7 @@ describe('ContextDistiller', () => {
       }
 
       const { contextString } = distill(data, {
+        tokenCounter: estimateTokens,
         filterNode: (key, _value) => {
           if (key === 'nuke_me') return false // DROP
           if (key === 'sensitive') return true // KEEP (no further processing on this node)
@@ -315,6 +352,7 @@ describe('ContextDistiller', () => {
 
       let capturedPath = ''
       distill(data, {
+        tokenCounter: estimateTokens,
         filterNode: (_key, _value, path) => {
           if (path === 'user.profile.email') {
             capturedPath = path
@@ -325,18 +363,48 @@ describe('ContextDistiller', () => {
 
       expect(capturedPath).toBe('user.profile.email')
     })
+
+    it('remains non-terminal for "true", allowing subsequent PII redaction', () => {
+      const data = {
+        sensitive: 'Contact me at alice@example.com',
+      }
+      const { contextString } = distill(data, {
+        redactPII: {}, // Enable PII redaction
+        tokenCounter: estimateTokens,
+        filterNode: (key) => key === 'sensitive', // Explicitly keep
+      })
+      // Should still be redacted!
+      expect(contextString).toContain('sensitive: Contact me at <EMAIL_0>')
+    })
+
+    it('remains non-terminal for "true", allowing subsequent ID aliasing', () => {
+      const data = {
+        user_uuid: '550e8400-e29b-41d4-a716-446655440000',
+      }
+      const { contextString } = distill(data, {
+        enableAliasing: true,
+        tokenCounter: estimateTokens,
+        filterNode: (key) => key === 'user_uuid', // Explicitly keep
+      })
+      // Should still be aliased!
+      expect(contextString).toContain('user_uuid: $ID_0')
+    })
   })
 
   describe('Enterprise: Zero-Trust (Allowlist Mode)', () => {
     it('drops everything by default in allowlist mode', () => {
       const data = { name: 'Alice', secret: '1234' }
-      const { contextString } = distill(data, { mode: 'allowlist' })
+      const { contextString } = distill(data, { mode: 'allowlist', tokenCounter: estimateTokens })
       expect(contextString).toBe('')
     })
 
     it('only keeps explicitly preserved keys', () => {
       const data = { name: 'Alice', secret: '1234' }
-      const { contextString } = distill(data, { mode: 'allowlist', preserveKeys: ['name'] })
+      const { contextString } = distill(data, {
+        mode: 'allowlist',
+        preserveKeys: ['name'],
+        tokenCounter: estimateTokens,
+      })
       expect(contextString).toBe('name: Alice')
     })
 
@@ -351,6 +419,7 @@ describe('ContextDistiller', () => {
       const { contextString } = distill(data, {
         mode: 'allowlist',
         preserveKeys: ['user.profile.name'],
+        tokenCounter: estimateTokens,
       })
       expect(contextString).toBe('user: \n  profile: \n    name: Alice')
       expect(contextString).not.toContain('bio')
@@ -368,6 +437,7 @@ describe('ContextDistiller', () => {
       const { contextString } = distill(data, {
         mode: 'allowlist',
         preserveKeys: ['items.*.val'],
+        tokenCounter: estimateTokens,
       })
       expect(contextString).toContain('val: A')
       expect(contextString).toContain('val: B')
@@ -383,10 +453,63 @@ describe('ContextDistiller', () => {
       const { contextString } = distill(data, {
         mode: 'allowlist',
         preserveKeys: ['config'],
+        tokenCounter: estimateTokens,
       })
       expect(contextString).toContain('theme: dark')
       expect(contextString).toContain('layout: grid')
       expect(contextString).not.toContain('Alice')
+    })
+  })
+
+  describe('Array Input (Data Accumulation)', () => {
+    it('distills multiple fragments as a unified payload', () => {
+      const fragments = [{ user: 'Alice' }, { user: 'Bob' }]
+
+      const { contextString } = distill(fragments, { tokenCounter: estimateTokens })
+      expect(contextString).toContain('Alice')
+      expect(contextString).toContain('Bob')
+      // DMD format for arrays is '- \n  key: val' or similar depending on depth
+      expect(contextString).toMatch(/-[\s]+user: Alice/)
+      expect(contextString).toMatch(/-[\s]+user: Bob/)
+    })
+
+    it('honors collective budget across multiple fragments', () => {
+      const fragments = ['A'.repeat(50), 'B'.repeat(50)]
+
+      const { stats } = distill(fragments, {
+        budget: { maxContextTokens: 30 },
+        tokenCounter: (t) => t.length,
+      })
+      expect(stats.distilledTokens).toBeLessThanOrEqual(30)
+    })
+  })
+
+  describe('Enterprise: Graceful Circular Reference Handling', () => {
+    it('does NOT throw and prunes circular nodes in Scrubber', () => {
+      const data: any = { name: 'Alice' }
+      data.self = data // Circular!
+
+      const { contextString, warnings } = distill(data, { tokenCounter: estimateTokens })
+
+      expect(contextString).toBe('name: Alice')
+      expect(warnings).toBeDefined()
+      expect(warnings![0]).toContain('Circular reference detected at path: "self"')
+    })
+
+    it('handles circularity in the Truncator engine', () => {
+      const data: any = { name: 'Alice', long: 'A'.repeat(100) }
+      data.child = { parent: data } // Deep circular
+
+      const { contextString, warnings } = distill(data, {
+        maxStringLength: 50,
+        tokenCounter: estimateTokens,
+      })
+
+      // The parent link in the child will be pruned
+      expect(contextString).toContain('name: Alice')
+      expect(contextString).toContain('long: AAAA')
+      expect(warnings).toBeDefined()
+      expect(warnings!.some((w) => w.includes('Circular reference detected'))).toBe(true)
     })
   })
 })

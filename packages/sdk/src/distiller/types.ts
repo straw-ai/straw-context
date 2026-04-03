@@ -10,20 +10,31 @@ export interface ScrubberOptions {
    */
   preserveKeys?: string[]
   /**
-   * If true, uses the built-in "System Default Policy" to drop noisy keys.
-   * (e.g. __typename, _links, etc.)
+   * Operating mode for the scrubber.
    * 'blocklist': Drop elements explicitly listed in dropKeys/DEFAULT_NOISE.
    * 'allowlist': Drop EVERYTHING unless it matches a preserveKey.
-   * Default: 'blocklist'
+   * @default 'blocklist'
    */
   mode?: 'blocklist' | 'allowlist'
   /**
-   * If true, uses the built-in "System Default Policy" to drop noisy keys.
-   * Only applicable in 'blocklist' mode.
-   * Default: true
+   * @deprecated Use `useSystemBlocklist` instead.
    */
   useDefaultBlacklist?: boolean
-  /** Default: false ([] has semantic meaning) */
+  /**
+   * If true, uses the built-in "System Default Policy" to drop noisy keys.
+   * Only applicable when `mode` is 'blocklist'.
+   * @default true
+   */
+  useSystemBlocklist?: boolean
+  /**
+   * If true, drops null, undefined, or empty string values.
+   * @default true
+   */
+  pruneEmptyValues?: boolean
+  /**
+   * If true, drops arrays that contain no elements after scrubbing.
+   * @default false
+   */
   pruneEmptyArrays?: boolean
 }
 
@@ -48,8 +59,6 @@ export interface CustomRedactionRule {
 }
 
 export interface RedactOptions {
-  /** Whether redaction is enabled. Default: false */
-  enabled?: boolean
   /** Which built-in types of PII to scrub. Default: all available */
   types?: PIIType[]
   /** Custom regex rules defined by the user */
@@ -58,6 +67,25 @@ export interface RedactOptions {
   onRedact?: (type: string, match: string, path: string) => void
 }
 
+export interface BudgetOptions {
+  /** The strict token limit for the distilled output. */
+  maxContextTokens: number
+  /**
+   * Strategy for pruning when over budget.
+   * 'depth': Prune deeply nested nodes first.
+   * 'priority': Use priorityKeys to determine what to drop first.
+   * Default: 'depth'
+   */
+  strategy?: 'depth' | 'priority'
+  /** Keys or paths that should be considered low priority (dropped first). */
+  lowPriorityKeys?: string[]
+  /** Keys or paths that MUST never be dropped during budgeting. */
+  essentialKeys?: string[]
+}
+
+export type LLMProvider = 'openai' | 'anthropic' | 'gemini' | 'meta' | 'generic'
+export type OutputFormat = 'dmd' | 'xml' | 'json'
+
 /**
  * Custom middleware escape hatch.
  * Return true to KEEP, false to DROP, or undefined to use default engine logic.
@@ -65,26 +93,46 @@ export interface RedactOptions {
 export type FilterNodeCallback = (key: string, value: any, path: string) => boolean | undefined
 
 export interface DistillOptions extends ScrubberOptions {
-  /** Hard cap on string values. Uses Middle-Out truncation. Default: 1000 */
+  /**
+   * Name of one or more pre-defined configuration templates (e.g. 'github', 'stripe', 'graphql').
+   * If provided as an array, presets are merged in order.
+   */
+  preset?: string | string[]
+  /** Hard cap on string values. Disabled by default. */
   maxStringLength?: number
-  /** Convert arrays of similar objects to Markdown tables. Default: true */
+  /** Strategy for string truncation when maxStringLength is exceeded. @default 'middle' */
+  stringTruncationStrategy?: 'middle' | 'end' | 'start'
+  /** Convert arrays of similar objects to Markdown tables. @default false */
   tableifyArrays?: boolean
-  /** Minimum array length to trigger table conversion. Default: 3 */
+  /** Minimum array length to trigger table conversion. @default 3 */
   tableifyThreshold?: number
-  /** Enable UUID/SHA to short-pointer replacement. Default: true */
+  /** Enable UUID/SHA to short-pointer replacement. @default false */
   enableAliasing?: boolean
-  /** Convert ISO date strings to relative time (e.g. "2 days ago"). Default: true */
+  /** Convert ISO date strings to relative time (e.g. "2 days ago"). @default false */
   relativeDates?: boolean
-  /** Enable whole-pipeline pre-processing (JSON auto-parse + log dedupe). Default: true */
+  /** Enable whole-pipeline pre-processing (JSON auto-parse + log dedupe). @default true */
   enableInputGuard?: boolean
   /** Configuration for Semantic Line Deduplication */
   dedupe?: DedupeOptions
-  /** Anchor date for relative time calculations (useful for testing). Default: new Date() */
+  /** Anchor date for relative time calculations (useful for testing). @default new Date() */
   dateAnchor?: Date
   /** Custom middleware to run on every node before default engines. */
   filterNode?: FilterNodeCallback
-  /** Options for PII and PHI redaction. Default: false */
-  redactPII?: boolean | RedactOptions
+  /** Options for PII and PHI redaction. Omit to disable. */
+  redactPII?: RedactOptions
+  /**
+   * Custom token counter function (e.g. using tiktoken).
+   * **MANDATORY** if `budget` is specified.
+   */
+  tokenCounter?: (text: string) => number
+  /** Budgeting configuration to fit strict context windows. */
+  budget?: BudgetOptions
+  /** Target LLM provider to apply optimal formatting defaults. */
+  targetProvider?: LLMProvider
+  /** Override the default formatting strategy. @default 'dmd' */
+  outputFormat?: OutputFormat
+  /** Enable debug tracing of the distillation process. */
+  debug?: boolean
 }
 
 export interface DistillResult {
@@ -94,11 +142,17 @@ export interface DistillResult {
   reverseMap: Map<string, string>
   /** Conservative heuristic estimate of token reduction */
   stats: {
+    /** Estimated token count of the original input */
     originalTokens: number
+    /** Estimated token count of the distilled output */
     distilledTokens: number
-    reductionPercent: number
+    /** Ratio of reduction (0.0 to 1.0). */
+    reductionRatio: number
+    /** Total processing time in milliseconds */
     durationMs: number
   }
+  /** Diagnostic warnings or telemetry about the distillation process */
+  warnings?: string[]
 }
 
 export class DistillError extends Error {

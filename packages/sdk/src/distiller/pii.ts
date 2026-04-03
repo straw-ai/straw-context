@@ -13,21 +13,41 @@ const BUILT_IN_PATTERNS: Record<PIIType, RegExp> = {
 
 const DEFAULT_TYPES: PIIType[] = ['api-key', 'credit-card', 'email', 'phone']
 
+/**
+ * Redacts PII/PHI from a string based on the provided options.
+ */
+const compiledRulesCache = new WeakMap<RedactOptions, { pattern: RegExp; base: string }[]>()
+
 export function redactString(
   text: string,
-  options: boolean | RedactOptions,
+  options: RedactOptions,
   forwardMap: Map<string, string>,
   reverseMap: Map<string, string>,
   counters: Record<string, number>,
   path: string,
 ): string {
-  if (!options || (typeof options === 'object' && options.enabled === false)) {
+  if (!options) {
     return text
   }
 
-  const opt = typeof options === 'boolean' ? {} : options
+  const opt = options
   const activeTypes = opt.types ?? DEFAULT_TYPES
   const customRules = opt.customRules ?? []
+
+  let compiledCustomRules = compiledRulesCache.get(opt)
+  if (!compiledCustomRules) {
+    compiledCustomRules = customRules.map((rule) => {
+      let base = rule.replacement
+        .replace(/^</, '')
+        .replace(/>$/, '')
+        .toUpperCase()
+        .replace(/\s+/g, '_')
+      if (!base) base = 'REDACTED'
+      const flags = rule.pattern.flags.includes('g') ? rule.pattern.flags : rule.pattern.flags + 'g'
+      return { pattern: new RegExp(rule.pattern.source, flags), base }
+    })
+    compiledRulesCache.set(opt, compiledCustomRules)
+  }
 
   let result = text
 
@@ -59,20 +79,8 @@ export function redactString(
   }
 
   // 2. Apply Custom Redactions
-  for (const rule of customRules) {
-    // Create a safe semantic base: strip existing brackets, uppercase, replace spaces with underscores
-    let base = rule.replacement
-      .replace(/^</, '')
-      .replace(/>$/, '')
-      .toUpperCase()
-      .replace(/\s+/g, '_')
-    if (!base) base = 'REDACTED'
-
-    // Ensure the regex has the global flag to replace all occurrences natively
-    const flags = rule.pattern.flags.includes('g') ? rule.pattern.flags : rule.pattern.flags + 'g'
-    const globalPattern = new RegExp(rule.pattern.source, flags)
-
-    applyRule(globalPattern, base)
+  for (const rule of compiledCustomRules) {
+    applyRule(rule.pattern, rule.base)
   }
 
   return result

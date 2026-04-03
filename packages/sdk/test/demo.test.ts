@@ -1,6 +1,7 @@
 import { describe, it } from 'vitest'
 
 import { distill } from '../src/index.js'
+import { estimateTokens } from './estimate.js'
 
 describe('ContextDistiller Demo', () => {
   it('shows Input vs Output in the console', () => {
@@ -28,7 +29,7 @@ describe('ContextDistiller Demo', () => {
       ],
     }
 
-    const result = distill(input, { maxStringLength: 100 })
+    const result = distill(input, { maxStringLength: 100, tokenCounter: estimateTokens })
 
     console.log('\n' + '='.repeat(20) + ' INPUT ' + '='.repeat(20))
     console.log(JSON.stringify(input, null, 2))
@@ -36,10 +37,10 @@ describe('ContextDistiller Demo', () => {
     console.log('\n' + '='.repeat(20) + ' OUTPUT (DMD) ' + '='.repeat(20))
     console.log(result.contextString)
 
-    console.log('\n' + '='.repeat(20) + ' STATISTICS ' + '='.repeat(20))
     console.log(`Original Tokens (est):  ${result.stats.originalTokens}`)
     console.log(`Distilled Tokens (est): ${result.stats.distilledTokens}`)
-    console.log(`Reduction:              ${result.stats.reductionPercent}%`)
+    const reductionPercent = (result.stats.reductionRatio * 100).toFixed(1)
+    console.log(`Reduction:              ${reductionPercent}%`)
     console.log(`Aliased IDs:            ${result.reverseMap.size}`)
 
     if (result.reverseMap.size > 0) {
