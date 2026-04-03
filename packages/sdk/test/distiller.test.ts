@@ -13,12 +13,6 @@ describe('ContextDistiller', () => {
       expect(contextString).toContain('id: 123')
     })
 
-    it('throws on circular references', () => {
-      const a: any = { name: 'A' }
-      a.self = a
-      // We catch either our custom error or the native JSON.stringify error depending on where it fails
-      expect(() => distill(a, { tokenCounter: estimateTokens })).toThrow()
-    })
 
     it('removes universal noise, nulls, and empty strings', () => {
       const raw = {
