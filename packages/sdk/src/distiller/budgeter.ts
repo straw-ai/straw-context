@@ -1,62 +1,16 @@
-import { truncate, formatOutput } from './engines.js'
+import { formatOutput, truncate } from './engines.js'
 import type { DistillOptions, BudgetOptions, OutputFormat } from './types.js'
 
+export interface NodeWeight {
+  path: string
+  cost: number
+  isEssential: boolean
+  depth: number
+}
+
 export class Budgeter {
-  /**
-   * Prunes the distilled object to fit within the maxContextTokens budget.
-   */
-  static prune(
-    node: any,
-    options: DistillOptions,
-    tokenCounter: (text: string) => number,
-    format: OutputFormat = 'dmd',
-  ): any {
-    const budget = options.budget!
-    let current = node
-
-    // Pass 1: Iterative String Dilation
-    const dilationFactors = [0.5, 0.25, 0.1, 0.05, 0.02]
-    const baseMaxLen = options.maxStringLength ?? 1000
-
-    for (const factor of dilationFactors) {
-      if (this.isWithinBudget(current, budget, options, tokenCounter, format)) return current
-      current = this.applyStringDilation(
-        current,
-        baseMaxLen,
-        factor,
-        options.stringTruncationStrategy ?? 'middle',
-      )
-    }
-
-    if (this.isWithinBudget(current, budget, options, tokenCounter, format)) return current
-
-    // Pass 2: Branch Pruning (Priority)
-    if (budget.strategy === 'priority') {
-      current = this.pruneByPriority(current, budget)
-      if (this.isWithinBudget(current, budget, options, tokenCounter, format)) return current
-    }
-
-    // Pass 3: Array Truncation (More aggressive)
-    for (let i = 0; i < 10; i++) {
-      if (this.isWithinBudget(current, budget, options, tokenCounter, format)) return current
-      const { next, changed } = this.truncateArraysAggressive(current)
-      if (!changed) break
-      current = next
-    }
-
-    // Pass 4: Iterative Depth-First Pruning (The "Nuke" option)
-    for (let i = 0; i < 20; i++) {
-      if (this.isWithinBudget(current, budget, options, tokenCounter, format)) return current
-      const { next, changed } = this.pruneOneLevel(current, budget)
-      if (!changed) break
-      current = next
-    }
-
-    return current
-  }
-
   private static isWithinBudget(
-    node: any,
+    node: unknown,
     budget: BudgetOptions,
     options: DistillOptions,
     tokenCounter: (text: string) => number,
@@ -69,173 +23,289 @@ export class Budgeter {
     return tokenCounter(output) <= budget.maxContextTokens
   }
 
+  /**
+   * The "Ghost Walk" Budgeter: Prunes the distilled object to fit within the maxContextTokens budget
+   * using an O(N) Virtual String calculation rather than physical stringification.
+   */
+  public static prune(
+    node: unknown,
+    options: DistillOptions,
+    tokenCounter: (text: string) => number,
+    format: OutputFormat = 'dmd',
+  ): { node: unknown; warnings: string[]; droppedPaths: Set<string> } {
+    if (!options.budget) {
+      return { node, warnings: [], droppedPaths: new Set() }
+    }
+
+    const { budget } = options
+    const warnings: string[] = []
+    const droppedPaths = new Set<string>()
+
+    const essentialKeys = new Set(budget.essentialKeys ?? [])
+    const lowPriorityKeys = new Set(budget.lowPriorityKeys ?? [])
+
+    let current = node
+    if (options.maxStringLength !== undefined && options.maxStringLength > 0) {
+      const dilationFactors = [0.5, 0.25, 0.1, 0.05, 0.02]
+      const baseMaxLen = options.maxStringLength
+      const strategy = options.stringTruncationStrategy ?? 'middle'
+
+      const isWithin = () => Budgeter.isWithinBudget(current, budget, options, tokenCounter, format)
+
+      dilationFactors.some((factor) => {
+        if (isWithin()) {
+          return true
+        }
+        current = Budgeter.applyStringDilation(current, baseMaxLen, factor, strategy)
+        return false
+      })
+    }
+
+    const weights: NodeWeight[] = []
+    let totalStructuralCost = 0
+
+    const walk = (
+      n: unknown,
+      depth: number,
+      path: string,
+      keyName: string,
+      visited: WeakSet<object>,
+    ): number => {
+      if (n === null || n === undefined) return 0
+
+      if (typeof n === 'object' && n !== null) {
+        if (visited.has(n)) return 0
+        visited.add(n)
+      }
+
+      let currentCost = 0
+      if (format === 'dmd') {
+        const indentSize = depth * 2
+        if (keyName) {
+          currentCost = indentSize + keyName.length + 2
+        } else {
+          currentCost = indentSize + 2
+        }
+      } else if (format === 'xml') {
+        const tag = keyName || 'item'
+        currentCost = depth * 2 + tag.length * 2 + 5
+      } else if (format === 'json') {
+        currentCost = depth * 2 + (keyName ? keyName.length + 4 : 0)
+      }
+
+      const isEssential = budget.essentialKeys
+        ? essentialKeys.has(keyName) || essentialKeys.has(path)
+        : false
+
+      let branchCost = 0
+      if (Array.isArray(n)) {
+        if (n.length === 0) {
+          branchCost = format === 'dmd' ? 2 : 0
+        } else {
+          for (let i = 0; i < n.length; i++)
+            branchCost += walk(n[i], depth + 1, `${path}.${i}`, '', visited)
+        }
+      } else if (typeof n === 'object') {
+        const entries = Object.entries(n as Record<string, unknown>)
+        if (entries.length === 0) {
+          branchCost = 0
+        } else {
+          for (const [k, v] of entries)
+            branchCost += walk(v, depth + 1, path ? `${path}.${k}` : k, k, visited)
+        }
+      } else {
+        branchCost = String(n).length + 1
+      }
+
+      const totalCost = currentCost + branchCost
+      totalStructuralCost += totalCost
+
+      if (path) {
+        weights.push({ path, cost: totalCost, isEssential, depth })
+      }
+      return totalCost
+    }
+
+    const initialVisited = new WeakSet<object>()
+    if (Array.isArray(current)) {
+      initialVisited.add(current)
+      for (let i = 0; i < current.length; i++) walk(current[i], 0, `${i}`, '', initialVisited)
+    } else if (typeof current === 'object' && current !== null) {
+      initialVisited.add(current)
+      for (const [k, v] of Object.entries(current as Record<string, unknown>))
+        walk(v, 0, k, k, initialVisited)
+    } else {
+      walk(current, 0, '', '', initialVisited)
+    }
+
+    const initialFormatWithTables = formatOutput(current, format, {
+      tableifyArrays: options.tableifyArrays ?? true,
+      tableifyThreshold: options.tableifyThreshold ?? 3,
+    })
+    const exactTokens = tokenCounter(initialFormatWithTables)
+    if (exactTokens <= budget.maxContextTokens) {
+      return { node: current, warnings, droppedPaths: new Set() }
+    }
+
+    // To figure out how many chars to cut from the structural walk cost, we map the deficit tokens
+    // through safeCharsPerToken, then blow it up by the tableification compression ratio
+    // because total Walk Cost mimics Standard (No Table) format length.
+    const initialFormatStandard = formatOutput(current, format, {
+      tableifyArrays: false,
+      tableifyThreshold: 9999,
+    })
+    const tableCompressionRatio =
+      initialFormatStandard.length / Math.max(1, initialFormatWithTables.length)
+    const deficitTokens = exactTokens - budget.maxContextTokens
+    const safeCharsPerToken = Math.max(1, initialFormatWithTables.length / Math.max(1, exactTokens))
+    const requiredCuts = Math.max(
+      1,
+      deficitTokens * safeCharsPerToken * tableCompressionRatio * 1.05,
+    )
+    let charsCut = 0
+    let nodesDropped = 0
+    const droppedCostMap = new Map<string, number>()
+
+    const candidates = weights.filter((w) => !w.isEssential)
+
+    const mappedCandidates = candidates.map((w) => {
+      const parts = w.path.split('.')
+      const isLowPriority = lowPriorityKeys.has(w.path) || parts.some((p) => lowPriorityKeys.has(p))
+      let latestIndex = -1
+      for (let i = parts.length - 1; i >= 0; i--) {
+        const p = parts[i]
+        if (p && /^\d+$/.test(p)) {
+          latestIndex = parseInt(p, 10)
+          break
+        }
+      }
+      return { ...w, isLowPriority, latestIndex }
+    })
+
+    mappedCandidates.sort((a, b) => {
+      if (a.isLowPriority && !b.isLowPriority) return -1
+      if (!a.isLowPriority && b.isLowPriority) return 1
+
+      if (budget.strategy === 'priority') {
+        // Priority drops biggest chunks first
+        return b.cost - a.cost
+      }
+
+      // Default: depth
+      // Group by Array Index (Drop tail items first)
+      if (a.latestIndex !== -1 && b.latestIndex !== -1 && a.latestIndex !== b.latestIndex) {
+        return b.latestIndex - a.latestIndex
+      }
+
+      // Inside array groups, drop the parent container before children to ensure clean excision
+      if (a.latestIndex !== -1 && b.latestIndex !== -1) return b.cost - a.cost
+
+      // Drop deepest nodes first, then most expensive
+      if (b.depth !== a.depth) return b.depth - a.depth
+      return b.cost - a.cost
+    })
+
+    for (const candidate of mappedCandidates) {
+      if (charsCut >= requiredCuts) break
+
+      let isCovered = false
+      let costToSubtractFromCandidate = 0
+
+      for (const [droppedPath, droppedCost] of droppedCostMap.entries()) {
+        if (candidate.path.startsWith(`${droppedPath}.`)) {
+          isCovered = true
+          break
+        }
+        if (droppedPath.startsWith(`${candidate.path}.`)) {
+          costToSubtractFromCandidate += droppedCost
+        }
+      }
+
+      if (!isCovered) {
+        const actualNetCost = candidate.cost - costToSubtractFromCandidate
+        if (actualNetCost > 0) {
+          droppedCostMap.set(candidate.path, actualNetCost)
+          droppedPaths.add(candidate.path)
+          charsCut += actualNetCost
+          nodesDropped++
+        }
+      }
+    }
+
+    const applyDropMask = (
+      n: unknown,
+      p: string = '',
+      visited = new WeakSet<object>(),
+    ): unknown => {
+      if (p && droppedPaths.has(p)) return undefined
+      if (typeof n === 'object' && n !== null) {
+        if (visited.has(n)) return n // Circular ref already handled by Scrubber, but just in case
+        visited.add(n)
+      }
+
+      if (Array.isArray(n)) {
+        const arr = n
+          .map((item, idx) => applyDropMask(item, p ? `${p}.${idx}` : `${idx}`, visited))
+          .filter((x) => x !== undefined)
+        return arr.length > 0 ? arr : undefined
+      }
+      if (typeof n === 'object' && n !== null) {
+        const res: Record<string, unknown> = {}
+        for (const [k, v] of Object.entries(n as Record<string, unknown>)) {
+          const child = applyDropMask(v, p ? `${p}.${k}` : k, visited)
+          if (child !== undefined) res[k] = child
+        }
+        return Object.keys(res).length > 0 ? res : undefined
+      }
+      return n
+    }
+
+    const finalNode = nodesDropped > 0 ? (applyDropMask(current) ?? {}) : current
+
+    const lossRatio = nodesDropped / Math.max(1, weights.length)
+    if (lossRatio > 0.3) {
+      warnings.push(
+        `High structural loss (${(lossRatio * 100).toFixed(1)}%): Virtual Weight Budgeter forced to drop nodes to meet strict token goals.`,
+      )
+    }
+
+    return { node: finalNode, warnings, droppedPaths }
+  }
+
   private static applyStringDilation(
-    node: any,
+    node: unknown,
     maxLen: number,
     ratio: number,
     strategy: 'middle' | 'end' | 'start',
-  ): any {
+  ): unknown {
     const newMax = Math.max(10, Math.floor(maxLen * ratio))
-    const walk = (n: any): any => {
-      if (typeof n === 'string') return truncate(n, newMax, strategy)
-      if (Array.isArray(n)) return n.map(walk)
+
+    const walk = (n: unknown, visited: WeakSet<object>): unknown => {
+      if (typeof n === 'string') {
+        return truncate(n, newMax, strategy)
+      }
+
       if (typeof n === 'object' && n !== null) {
-        const obj: any = {}
-        for (const [k, v] of Object.entries(n)) obj[k] = walk(v)
-        return obj
+        if (visited.has(n)) return n
+        visited.add(n)
+      }
+
+      if (Array.isArray(n)) {
+        return n.map((item) => walk(item, visited))
+      }
+      if (typeof n === 'object' && n !== null) {
+        return Object.entries(n as Record<string, unknown>).reduce<Record<string, unknown>>(
+          (acc, [k, v]) => {
+            const result = acc
+            result[k] = walk(v, visited)
+            return result
+          },
+          {},
+        )
       }
       return n
     }
-    return walk(node)
-  }
 
-  private static pruneByPriority(node: any, budget: BudgetOptions): any {
-    const lowPriority = new Set(budget.lowPriorityKeys ?? [])
-    const essential = new Set(budget.essentialKeys ?? [])
-    const walk = (n: any, path: string = ''): any => {
-      if (typeof n !== 'object' || n === null) return n
-      if (Array.isArray(n)) {
-        return n.map((item, idx) => walk(item, `${path}.${idx}`)).filter((v) => v !== undefined)
-      }
-      const obj: any = {}
-      for (const [k, v] of Object.entries(n)) {
-        const subPath = path ? `${path}.${k}` : k
-        if (
-          (lowPriority.has(k) || lowPriority.has(subPath)) &&
-          !essential.has(k) &&
-          !essential.has(subPath)
-        )
-          continue
-        const val = walk(v, subPath)
-        if (val !== undefined) obj[k] = val
-      }
-      return Object.keys(obj).length > 0 ? obj : undefined
-    }
-    return walk(node)
-  }
-
-  private static truncateArraysAggressive(node: any): { next: any; changed: boolean } {
-    let changed = false
-    const walk = (n: any): any => {
-      if (Array.isArray(n)) {
-        // Find real items (exclude summary strings)
-        const realItems = n.filter(
-          (item) => typeof item !== 'string' || !item.startsWith('... [pruned'),
-        )
-        const summaryItem = n.find(
-          (item) => typeof item === 'string' && item.startsWith('... [pruned'),
-        )
-
-        if (realItems.length > 1) {
-          const originalSize = realItems.length
-          const halfSize = Math.floor(originalSize / 2)
-          const keptItems = realItems.slice(0, halfSize)
-
-          let prunedTotal = originalSize - halfSize
-          if (summaryItem) {
-            const match = summaryItem.match(/\[pruned (\d+) items\]/)
-            if (match) prunedTotal += parseInt(match[1], 10)
-          }
-
-          changed = true
-          const result = [...keptItems.map(walk), `... [pruned ${prunedTotal} items]`]
-          return result
-        }
-        return n.map(walk)
-      }
-      if (typeof n === 'object' && n !== null) {
-        const obj: any = {}
-        for (const [k, v] of Object.entries(n)) obj[k] = walk(v)
-        return obj
-      }
-      return n
-    }
-    return { next: walk(node), changed }
-  }
-
-  private static pruneOneLevel(node: any, budget: BudgetOptions): { next: any; changed: boolean } {
-    const essential = new Set(budget.essentialKeys ?? [])
-    let changed = false
-
-    const getDepth = (n: any): number => {
-      if (typeof n !== 'object' || n === null) return 0
-      const vals: any[] = Array.isArray(n) ? n : Object.values(n)
-      if (vals.length === 0) return 0
-      return 1 + Math.max(0, ...vals.map(getDepth))
-    }
-
-    const currentMaxDepth = getDepth(node)
-    const targetDepth = Math.max(0, currentMaxDepth - 1)
-
-    const walk = (n: any, currentDepth: number, path: string = ''): any => {
-      if (typeof n !== 'object' || n === null) return n
-
-      if (Array.isArray(n)) {
-        const res = []
-        let pruneCount = 0
-        for (let i = 0; i < n.length; i++) {
-          const item = n[i]
-          const subPath = `${path}.${i}`
-
-          // Skip summary strings from being pruned themselves if we are exactly at target depth
-          const isSummary =
-            typeof item === 'string' &&
-            (item.startsWith('... [pruned') || item.includes('hidden items'))
-
-          if (!isSummary && currentDepth === targetDepth && !essential.has(subPath)) {
-            pruneCount++
-            changed = true
-            continue
-          }
-
-          const val = walk(item, currentDepth + 1, subPath)
-          if (val !== undefined) res.push(val)
-        }
-
-        if (pruneCount > 0) {
-          // Merge with existing prune summary if present
-          let totalPruned = pruneCount
-          const existingSummaryIdx = res.findIndex(
-            (it) => typeof it === 'string' && it.startsWith('... [pruned'),
-          )
-          if (existingSummaryIdx !== -1) {
-            const match = (res[existingSummaryIdx] as string).match(/\[pruned (\d+) items\]/)
-            if (match && match[1]) totalPruned += parseInt(match[1], 10)
-            res.splice(existingSummaryIdx, 1)
-          }
-          res.push(`... [pruned ${totalPruned} items]`)
-        }
-        return res.length > 0 ? res : undefined
-      }
-
-      const obj: any = {}
-      let hasKeys = false
-      let pruneCount = 0
-      for (const [k, v] of Object.entries(n)) {
-        const subPath = path ? `${path}.${k}` : k
-
-        if (currentDepth === targetDepth && !essential.has(k) && !essential.has(subPath)) {
-          pruneCount++
-          changed = true
-          continue
-        }
-
-        const val = walk(v, currentDepth + 1, subPath)
-        if (val !== undefined) {
-          obj[k] = val
-          hasKeys = true
-        }
-      }
-      if (pruneCount > 0) {
-        obj['__straw_pruned'] = `[${pruneCount} hidden items]`
-        hasKeys = true
-      }
-      return hasKeys ? obj : undefined
-    }
-
-    const result = walk(node, 0)
-    let next = result
-    if (result === undefined) next = Array.isArray(node) ? [] : {}
-    return { next, changed }
+    return walk(node, new WeakSet<object>())
   }
 }

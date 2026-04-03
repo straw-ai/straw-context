@@ -61,28 +61,47 @@ export function scrub(
   const isMatched = (key: string, path: string, literals: Set<string>, patterns: RegExp[]) =>
     literals.has(key) || literals.has(path) || patterns.some((re) => re.test(key) || re.test(path))
 
-  const isPrefixMatch = (path: string): boolean =>
-    allPreserveKeys.some((pk) => {
-      if (pk === path) {
+  const parsedPreservePrefixes = allPreserveKeys
+    .filter((k) => k.includes('*'))
+    .map((k) => k.split('.'))
+  const literalPreserveKeys = allPreserveKeys.filter((k) => !k.includes('*'))
+
+  const isPrefixMatch = (pathParts: string[], path: string): boolean => {
+    for (const pk of literalPreserveKeys) {
+      if (pk === path || pk.startsWith(`${path}.`)) {
         return true
       }
-      if (pk.startsWith(`${path}.`)) {
-        return true
-      }
-      if (pk.includes('*')) {
-        const parts = pk.split('.')
-        const pathParts = path.split('.')
+    }
 
-        if (pathParts.length > parts.length) {
-          return false
-        }
-
-        return pathParts.every((part, i) => parts[i] === '*' || parts[i] === part)
-      }
+    if (parsedPreservePrefixes.length === 0) {
       return false
-    })
+    }
 
-  const shouldDrop = (key: string, path: string, isAllowedParent: boolean): boolean => {
+    for (const parts of parsedPreservePrefixes) {
+      if (pathParts.length > parts.length) {
+        continue
+      }
+
+      let matches = true
+      for (let j = 0; j < pathParts.length; j++) {
+        if (parts[j] !== '*' && parts[j] !== pathParts[j]) {
+          matches = false
+          break
+        }
+      }
+      if (matches) {
+        return true
+      }
+    }
+    return false
+  }
+
+  const shouldDrop = (
+    key: string,
+    path: string,
+    pathParts: string[],
+    isAllowedParent: boolean,
+  ): boolean => {
     // 0. If parent was allow-listed, we don't drop anything unless explicitly blocked
     if (isAllowedParent) {
       return isMatched(key, path, dropLiterals, dropPatterns)
@@ -95,7 +114,7 @@ export function scrub(
 
     // 2. If in allowlist mode, we drop if it's NOT a preserve and NOT a prefix
     if (mode === 'allowlist') {
-      return !isPrefixMatch(path)
+      return !isPrefixMatch(pathParts, path)
     }
 
     // 3. User's explicit DROP list
@@ -120,6 +139,7 @@ export function scrub(
     node: unknown,
     key: string = '',
     path: string = '',
+    pathParts: string[] = [],
     visited = new WeakSet(),
     isAllowedParent = false,
   ): unknown {
@@ -134,7 +154,7 @@ export function scrub(
     const currentAllowed = isAllowedParent || currentMatched
 
     // 1. Drop Logic
-    if (key && shouldDrop(key, path, isAllowedParent)) {
+    if (key && shouldDrop(key, path, pathParts, isAllowedParent)) {
       return undefined
     }
 
@@ -188,9 +208,17 @@ export function scrub(
 
     if (Array.isArray(node)) {
       const cleanedArray = node
-        .map((item, idx) =>
-          walk(item, String(idx), path ? `${path}.${idx}` : String(idx), visited, currentAllowed),
-        )
+        .map((item, idx) => {
+          const strIdx = String(idx)
+          return walk(
+            item,
+            strIdx,
+            path ? `${path}.${idx}` : strIdx,
+            [...pathParts, strIdx],
+            visited,
+            currentAllowed,
+          )
+        })
         .filter((v) => v !== undefined)
 
       if (cleanedArray.length === 0) {
@@ -203,7 +231,7 @@ export function scrub(
     const nodeRecord = node as Record<string, unknown>
     const cleanedObj = Object.entries(nodeRecord).reduce<Record<string, unknown>>((acc, [k, v]) => {
       const subPath = path ? `${path}.${k}` : k
-      const cleanedValue = walk(v, k, subPath, visited, currentAllowed)
+      const cleanedValue = walk(v, k, subPath, [...pathParts, k], visited, currentAllowed)
 
       if (cleanedValue === undefined) {
         return acc

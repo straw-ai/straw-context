@@ -28,7 +28,8 @@
     "Redactions",
     "baprs",
     "pousr",
-    "apos"
+    "apos",
+    "tableification"
   ],
   "ignorePaths": [
     "node_modules",
@@ -40,6 +41,7 @@
     ".changeset/*.md",
     "package.json",
     "**/test/**",
-    "**/*.test.ts"
+    "**/*.test.ts",
+    "*.tsbuildinfo"
   ]
 }

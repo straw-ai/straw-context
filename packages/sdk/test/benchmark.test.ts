@@ -8,6 +8,11 @@ describe('Multi-Format Performance Comparison', () => {
   const enc = getEncoding('cl100k_base') // GPT-4 encoding
   const tokenCounter = (t: string) => enc.encode(t).length
 
+  const longText =
+    'This is a very long descriptive string that would typically be truncated in a "magic" SDK. '.repeat(
+      50,
+    ) // ~5000 chars
+
   const testCases = [
     {
       name: 'Structured JSON (Metadata)',
@@ -35,6 +40,13 @@ describe('Multi-Format Performance Comparison', () => {
       },
     },
     {
+      name: 'Large Text Content (No Trunc)',
+      data: {
+        title: 'Document',
+        content: longText,
+      },
+    },
+    {
       name: 'Enterprise: PII + Budget',
       budget: 150,
       data: {
@@ -58,14 +70,15 @@ describe('Multi-Format Performance Comparison', () => {
   ]
 
   it('compares Raw vs YAML vs DMD (ContextDistiller)', () => {
-    const colWidths = [30, 8, 8, 8, 12, 12]
+    const colWidths = [30, 8, 8, 8, 8, 12, 12]
     const header = [
       'Dataset'.padEnd(colWidths[0]),
       'Raw'.padStart(colWidths[1]),
       'YAML'.padStart(colWidths[2]),
       'DMD'.padStart(colWidths[3]),
-      'Budgeted'.padStart(colWidths[4]),
-      'Reduction'.padStart(colWidths[5]),
+      'Trunc'.padStart(colWidths[4]),
+      'Budgeted'.padStart(colWidths[5]),
+      'Reduction'.padStart(colWidths[6]),
     ].join(' | ')
 
     console.log('\n' + '='.repeat(header.length + 4))
@@ -81,11 +94,15 @@ describe('Multi-Format Performance Comparison', () => {
       const yamlStr = yaml.dump(tc.data)
       const yamlTokens = tokenCounter(yamlStr)
 
-      // 3. DMD (Default)
+      // 3. DMD (Default - NO Truncation now)
       const { contextString: dmdStr } = distill(tc.data, { tokenCounter })
       const dmdTokens = tokenCounter(dmdStr)
 
-      // 4. DMD (Budgeted & Secure)
+      // 4. DMD (With Truncation @ 500 chars)
+      const { contextString: truncStr } = distill(tc.data, { tokenCounter, maxStringLength: 500 })
+      const truncTokens = tokenCounter(truncStr)
+
+      // 5. DMD (Budgeted & Secure)
       const { contextString: budgetStr } = distill(tc.data, {
         tokenCounter,
         redactPII: {},
@@ -102,8 +119,9 @@ describe('Multi-Format Performance Comparison', () => {
         String(rawTokens).padStart(colWidths[1]),
         String(yamlTokens).padStart(colWidths[2]),
         String(dmdTokens).padStart(colWidths[3]),
-        (tc.budget ? `${budgetTokens} (max ${tc.budget})` : '-').padStart(colWidths[4]),
-        `${reductionDisplay}%`.padStart(colWidths[5]),
+        String(truncTokens).padStart(colWidths[4]),
+        (tc.budget ? `${budgetTokens} (max ${tc.budget})` : '-').padStart(colWidths[5]),
+        `${reductionDisplay}%`.padStart(colWidths[6]),
       ].join(' | ')
 
       console.log(`| ${row} |`)

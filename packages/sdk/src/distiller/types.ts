@@ -89,7 +89,7 @@ export type OutputFormat = 'dmd' | 'xml' | 'json'
 export type FilterNodeCallback = (key: string, value: any, path: string) => boolean | undefined
 
 export interface DistillOptions extends ScrubberOptions {
-  /** Hard cap on string values. @default 1000 */
+  /** Hard cap on string values. Disabled by default. */
   maxStringLength?: number
   /** Strategy for string truncation when maxStringLength is exceeded. @default 'middle' */
   stringTruncationStrategy?: 'middle' | 'end' | 'start'
@@ -139,6 +139,8 @@ export interface DistillResult {
     /** Total processing time in milliseconds */
     durationMs: number
   }
+  /** Diagnostic warnings or telemetry about the distillation process */
+  warnings?: string[]
 }
 
 export class DistillError extends Error {

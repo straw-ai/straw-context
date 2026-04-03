@@ -85,13 +85,18 @@ export class ContextDistiller {
     )
 
     // 4. Truncator (Engine B) - Applied recursively to strings
-    const maxLen = options.maxStringLength ?? 1000
-    const strategy = options.stringTruncationStrategy ?? 'middle'
-    processed = ContextDistiller.recursiveTruncate(processed, maxLen, strategy)
+    const { maxStringLength: maxLen, stringTruncationStrategy: strategy = 'middle' } = options
+    if (maxLen !== undefined && maxLen > 0) {
+      processed = ContextDistiller.recursiveTruncate(processed, maxLen, strategy)
+    }
+
+    let warnings: string[] | undefined
 
     // 5. Budgeting Pass
     if (options.budget) {
-      processed = Budgeter.prune(processed, options, counter, format)
+      const budgetResult = Budgeter.prune(processed, options, counter, format)
+      processed = budgetResult.node
+      warnings = budgetResult.warnings
     }
 
     // 6. Formatter (Engine D - Optimized for LLM)
@@ -112,6 +117,7 @@ export class ContextDistiller {
         reductionRatio: originalTokens > 0 ? 1 - distilledTokens / originalTokens : 0,
         durationMs: Date.now() - start,
       },
+      ...(warnings && warnings.length > 0 ? { warnings } : {}),
     }
   }
 

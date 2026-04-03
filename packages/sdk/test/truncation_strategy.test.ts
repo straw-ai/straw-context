@@ -4,13 +4,20 @@ import { distill } from '../src/index.js'
 
 describe('Engine B: String Truncation Strategies', () => {
   const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
-  // 62 characters
 
-  it('uses middle-out truncation by default', () => {
+  it('no longer truncates by default (Deterministic Change)', () => {
+    const res = distill({ text: alphabet })
+    // In previous versions, this would have been truncated at 1000.
+    // Here we test that even with a smaller implicit limit, it is NOT touched.
+    expect(res.contextString).toContain(alphabet)
+    expect(res.contextString).not.toContain('truncated')
+  })
+
+  it('uses middle-out truncation when explicitly enabled', () => {
     const res = distill({ text: alphabet }, { maxStringLength: 20 })
-    // Middle should keep approx 8 chars from start and end (0.4 * 20 = 8)
+    // Middle keeps first 8 (0.4 * 20) and last 8
     expect(res.contextString).toContain('ABCDEFGH')
-    expect(res.contextString).toContain('23456789') // end of string
+    expect(res.contextString).toContain('3456789')
     expect(res.contextString).toContain('chars truncated')
   })
 
@@ -22,7 +29,6 @@ describe('Engine B: String Truncation Strategies', () => {
     // End keeps first 16 chars (0.8 * 20 = 16)
     expect(res.contextString).toContain('ABCDEFGHIJKLMNOP')
     expect(res.contextString).not.toContain('STUVWXYZ')
-    expect(res.contextString).toContain('chars truncated at end')
   })
 
   it('supports start truncation', () => {
@@ -33,6 +39,21 @@ describe('Engine B: String Truncation Strategies', () => {
     // Start keeps last 16 chars
     expect(res.contextString).not.toContain('ABCDEFGH')
     expect(res.contextString).toContain('wxyz0123456789')
-    expect(res.contextString).toContain('chars truncated at start')
+  })
+
+  it('triggers Safety Trigger warning on high structural loss', () => {
+    const largeObject: any = {}
+    for (let i = 0; i < 100; i++) {
+      largeObject[`key_${i}`] = 'This is a moderately long string that we are NOT truncating.'
+    }
+
+    // Force a tight budget that requires dropping > 30% of nodes
+    const res = distill(largeObject, {
+      budget: { maxContextTokens: 50 }, // Extremely tight
+      // maxStringLength: undefined (Default)
+    })
+
+    expect(res.warnings).toBeDefined()
+    expect(res.warnings![0]).toContain('High structural loss')
   })
 })

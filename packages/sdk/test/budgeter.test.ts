@@ -11,9 +11,10 @@ describe('Enterprise: Tokenizer-Aware Budgeting', () => {
       meta: 'noise',
     }
 
-    // Goal: Fit in 100 tokens
+    // Goal: Fit in 100 tokens. Must explicitly enable maxStringLength for dilation to occur.
     const { contextString, stats } = distill(data, {
       tokenCounter: mockCounter,
+      maxStringLength: 100,
       budget: { maxContextTokens: 100 },
     })
 
@@ -150,5 +151,20 @@ describe('Enterprise: Tokenizer-Aware Budgeting', () => {
     expect(stats.distilledTokens).toBeLessThanOrEqual(60)
     // Should still be valid JSON
     expect(() => JSON.parse(contextString)).not.toThrow()
+  })
+
+  it('triggers structural loss warning when budget is tight and truncation is disabled', () => {
+    const data = Array.from({ length: 50 }, (_, i) => ({
+      id: i,
+      text: 'Long content that cannot be truncated by default.',
+    }))
+
+    const { warnings } = distill(data, {
+      tokenCounter: mockCounter,
+      budget: { maxContextTokens: 100 }, // Very tight
+    })
+
+    expect(warnings).toBeDefined()
+    expect(warnings![0]).toContain('High structural loss')
   })
 })
