@@ -112,6 +112,7 @@ describe('Enterprise: Tokenizer-Aware Budgeting', () => {
 
     const { contextString, stats } = distill(data, {
       tokenCounter: mockCounter,
+      tableifyArrays: true,
       budget: { maxContextTokens: 80 },
     })
 
@@ -161,6 +162,7 @@ describe('Enterprise: Tokenizer-Aware Budgeting', () => {
 
     const { warnings } = distill(data, {
       tokenCounter: mockCounter,
+      tableifyArrays: true,
       budget: { maxContextTokens: 100 }, // Very tight
     })
 

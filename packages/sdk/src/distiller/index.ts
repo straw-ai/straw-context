@@ -78,7 +78,7 @@ export class ContextDistiller {
       processed,
       {
         ...options,
-        aliasIds: options.enableAliasing !== false,
+        aliasIds: options.enableAliasing === true,
       },
       reverseMap,
       options.redactPII,
@@ -101,7 +101,7 @@ export class ContextDistiller {
 
     // 6. Formatter (Engine D - Optimized for LLM)
     const contextString = formatOutput(processed, format, {
-      tableifyArrays: options.tableifyArrays ?? true,
+      tableifyArrays: options.tableifyArrays ?? false,
       tableifyThreshold: options.tableifyThreshold ?? 3,
     })
 

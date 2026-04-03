@@ -176,7 +176,7 @@ export function scrub(
       }
 
       // Engine E: Date formatting
-      if (options.relativeDates !== false && ISO_DATE_REGEX.test(finalStr)) {
+      if (options.relativeDates === true && ISO_DATE_REGEX.test(finalStr)) {
         finalStr = formatRelativeTime(finalStr, options.dateAnchor)
       }
 

@@ -93,13 +93,13 @@ export interface DistillOptions extends ScrubberOptions {
   maxStringLength?: number
   /** Strategy for string truncation when maxStringLength is exceeded. @default 'middle' */
   stringTruncationStrategy?: 'middle' | 'end' | 'start'
-  /** Convert arrays of similar objects to Markdown tables. @default true */
+  /** Convert arrays of similar objects to Markdown tables. @default false */
   tableifyArrays?: boolean
   /** Minimum array length to trigger table conversion. @default 3 */
   tableifyThreshold?: number
-  /** Enable UUID/SHA to short-pointer replacement. @default true */
+  /** Enable UUID/SHA to short-pointer replacement. @default false */
   enableAliasing?: boolean
-  /** Convert ISO date strings to relative time (e.g. "2 days ago"). @default true */
+  /** Convert ISO date strings to relative time (e.g. "2 days ago"). @default false */
   relativeDates?: boolean
   /** Enable whole-pipeline pre-processing (JSON auto-parse + log dedupe). @default true */
   enableInputGuard?: boolean

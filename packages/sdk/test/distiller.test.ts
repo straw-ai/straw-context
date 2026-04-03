@@ -89,7 +89,7 @@ describe('ContextDistiller', () => {
       const uuid = '550e8400-e29b-41d4-a716-446655440000'
       const data = { user_id: uuid, meta: `Ref: ${uuid}` }
 
-      const { contextString, reverseMap } = distill(data)
+      const { contextString, reverseMap } = distill(data, { enableAliasing: true })
 
       expect(contextString).toContain('$ID_0')
       expect(contextString).not.toContain(uuid)
@@ -107,7 +107,7 @@ describe('ContextDistiller', () => {
         ],
       }
 
-      const { contextString } = distill(data, { tableifyThreshold: 3 })
+      const { contextString } = distill(data, { tableifyArrays: true, tableifyThreshold: 3 })
 
       expect(contextString).toContain('| id | name | role |')
       expect(contextString).toContain('| --- | --- | --- |')
@@ -132,7 +132,7 @@ describe('ContextDistiller', () => {
       const fiveDaysAgo = new Date(now.getTime() - 5 * 86400 * 1000).toISOString()
       const data = { created: fiveDaysAgo }
 
-      const { contextString } = distill(data)
+      const { contextString } = distill(data, { relativeDates: true })
       expect(contextString).toContain('created: 5 days ago')
     })
 
@@ -141,7 +141,7 @@ describe('ContextDistiller', () => {
       const inTwoYears = new Date(now.getTime() + 2 * 31536000 * 1000).toISOString()
       const data = { expires: inTwoYears }
 
-      const { contextString } = distill(data)
+      const { contextString } = distill(data, { relativeDates: true })
       expect(contextString).toContain('expires: in 2 years')
     })
 
@@ -158,7 +158,7 @@ describe('ContextDistiller', () => {
       const target = new Date('2026-03-30T10:00:00Z').toISOString() // 3 days before anchor
       const data = { event: target }
 
-      const { contextString } = distill(data, { dateAnchor: anchor })
+      const { contextString } = distill(data, { relativeDates: true, dateAnchor: anchor })
       expect(contextString).toContain('event: 3 days ago')
     })
   })

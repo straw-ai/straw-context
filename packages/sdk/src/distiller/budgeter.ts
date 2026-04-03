@@ -17,7 +17,7 @@ export class Budgeter {
     format: OutputFormat,
   ): boolean {
     const output = formatOutput(node, format, {
-      tableifyArrays: options.tableifyArrays ?? true,
+      tableifyArrays: options.tableifyArrays ?? false,
       tableifyThreshold: options.tableifyThreshold ?? 3,
     })
     return tokenCounter(output) <= budget.maxContextTokens
@@ -139,7 +139,7 @@ export class Budgeter {
     }
 
     const initialFormatWithTables = formatOutput(current, format, {
-      tableifyArrays: options.tableifyArrays ?? true,
+      tableifyArrays: options.tableifyArrays ?? false,
       tableifyThreshold: options.tableifyThreshold ?? 3,
     })
     const exactTokens = tokenCounter(initialFormatWithTables)
