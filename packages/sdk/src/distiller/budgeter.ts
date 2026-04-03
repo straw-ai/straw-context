@@ -45,10 +45,14 @@ export class Budgeter {
     const lowPriorityKeys = new Set(budget.lowPriorityKeys ?? [])
 
     let current = node
-    if (options.maxStringLength !== undefined && options.maxStringLength > 0) {
+    if (
+      options.maxStringLength !== undefined &&
+      options.maxStringLength > 0 &&
+      budget.allowDynamicTruncation === true
+    ) {
       const dilationFactors = [0.5, 0.25, 0.1, 0.05, 0.02]
       const baseMaxLen = options.maxStringLength
-      const strategy = options.stringTruncationStrategy ?? 'middle'
+      const strategy = options.stringTruncationStrategy ?? 'end'
 
       const isWithin = () => Budgeter.isWithinBudget(current, budget, options, tokenCounter, format)
 

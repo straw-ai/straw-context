@@ -29,7 +29,7 @@ describe('ContextDistiller Demo', () => {
       ],
     }
 
-    const result = distill(input, { maxStringLength: 100, tokenCounter: estimateTokens })
+    const result = distill(input, { tokenCounter: estimateTokens })
 
     console.log('\n' + '='.repeat(20) + ' INPUT ' + '='.repeat(20))
     console.log(JSON.stringify(input, null, 2))

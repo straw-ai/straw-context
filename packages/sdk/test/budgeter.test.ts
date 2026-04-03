@@ -15,7 +15,10 @@ describe('Enterprise: Tokenizer-Aware Budgeting', () => {
     const { contextString, stats } = distill(data, {
       tokenCounter: mockCounter,
       maxStringLength: 100,
-      budget: { maxContextTokens: 100 },
+      budget: {
+        maxContextTokens: 100,
+        allowDynamicTruncation: true,
+      },
     })
 
     expect(stats.distilledTokens).toBeLessThanOrEqual(100)

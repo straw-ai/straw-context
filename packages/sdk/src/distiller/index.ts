@@ -220,7 +220,7 @@ export function distill(input: unknown, options: DistillOptions = {}): DistillRe
   )
 
   // 5. Truncator (Engine B) - Applied recursively to strings
-  const { maxStringLength: maxLen, stringTruncationStrategy: strategy = 'middle' } = activeOptions
+  const { maxStringLength: maxLen, stringTruncationStrategy: strategy = 'end' } = activeOptions
   if (maxLen !== undefined && maxLen > 0) {
     processed = recursiveTruncate(processed, maxLen, strategy, new WeakSet(), '', warnings)
   }

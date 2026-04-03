@@ -80,7 +80,11 @@ describe('ContextDistiller', () => {
       const longString = 'X'.repeat(100) + 'Y'.repeat(1000) + 'Z'.repeat(100)
       const { contextString } = distill(
         { text: longString },
-        { maxStringLength: 100, tokenCounter: estimateTokens },
+        {
+          maxStringLength: 100,
+          stringTruncationStrategy: 'middle',
+          tokenCounter: estimateTokens,
+        },
       )
 
       expect(contextString).toContain('...[')

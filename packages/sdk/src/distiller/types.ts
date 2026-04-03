@@ -81,6 +81,12 @@ export interface BudgetOptions {
   lowPriorityKeys?: string[]
   /** Keys or paths that MUST never be dropped during budgeting. */
   essentialKeys?: string[]
+  /**
+   * If true, allows the Budgeter to dynamically shrink string lengths
+   * to fit the budget before dropping nodes.
+   * @default false
+   */
+  allowDynamicTruncation?: boolean
 }
 
 export type LLMProvider = 'openai' | 'anthropic' | 'gemini' | 'meta' | 'generic'
@@ -100,7 +106,10 @@ export interface DistillOptions extends ScrubberOptions {
   preset?: string | string[]
   /** Hard cap on string values. Disabled by default. */
   maxStringLength?: number
-  /** Strategy for string truncation when maxStringLength is exceeded. @default 'middle' */
+  /**
+   * Strategy for string truncation when maxStringLength is exceeded.
+   * @default 'end'
+   */
   stringTruncationStrategy?: 'middle' | 'end' | 'start'
   /** Convert arrays of similar objects to Markdown tables. @default false */
   tableifyArrays?: boolean
