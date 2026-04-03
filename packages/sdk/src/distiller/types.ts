@@ -151,12 +151,16 @@ export interface DistillResult {
   reverseMap: Map<string, string>
   /** Conservative heuristic estimate of token reduction */
   stats: {
-    /** Estimated token count of the original input */
-    originalTokens: number
-    /** Estimated token count of the distilled output */
+    /** Estimated tokens of the 2-space indented JSON baseline (The User's Truth) */
+    baselineTokens: number
+    /** Estimated tokens of the minified JSON baseline (The Technical Floor) */
+    minifiedTokens: number
+    /** Final tokens of the distilled Straw output (The New Reality) */
     distilledTokens: number
-    /** Ratio of reduction (0.0 to 1.0). */
-    reductionRatio: number
+    /** Reduction against the pretty baseline (Headline %). e.g. 62.1 */
+    reductionPercent: number
+    /** Reduction against the minified baseline (The Moat %). e.g. 46.3 */
+    efficiencyGain: number
     /** Total processing time in milliseconds */
     durationMs: number
   }

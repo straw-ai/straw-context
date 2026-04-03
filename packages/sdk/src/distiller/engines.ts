@@ -1,7 +1,6 @@
 import { DEFAULT_NOISE_KEYS } from './constants.js'
 import { redactString } from './pii.js'
 import {
-  DistillError,
   type ScrubberOptions,
   type FilterNodeCallback,
   type OutputFormat,
@@ -15,7 +14,7 @@ import {
 
 const ISO_DATE_REGEX = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}(:?\d{2})?)$/
 const ID_REGEX =
-  /\b([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}|[a-f0-9]{40}|[a-f0-9]{64}|[a-f0-9]{128})\b/gi
+  /\b([0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12}|[a-f0-9]{32,128})\b/gi
 
 // Hoisted Intl.RelativeTimeFormat for significant performance gains
 const RELATIVE_TIME_FORMATTER = new Intl.RelativeTimeFormat('en', {
@@ -412,7 +411,7 @@ export function formatToDMD(
   input: unknown,
   options: { tableifyArrays: boolean; tableifyThreshold: number },
 ): string {
-  function toMarkdown(node: unknown, indent: number = 0): string {
+  function toMarkdown(node: unknown, indent: number = 0, inline: boolean = false): string {
     const spacing = '  '.repeat(indent)
 
     if (Array.isArray(node)) {
@@ -429,12 +428,17 @@ export function formatToDMD(
         return formatAsTable(node, indent)
       }
 
-      return node.map((item) => `\n${spacing}- ${toMarkdown(item, indent + 1)}`).join('')
+      return node.map((item) => `\n${spacing}- ${toMarkdown(item, indent + 1, true)}`).join('')
     }
 
     if (typeof node === 'object' && node !== null) {
       return Object.entries(node as Record<string, unknown>)
-        .map(([key, value]) => `\n${spacing}${key}: ${toMarkdown(value, indent + 1)}`)
+        .map(([key, value], idx) => {
+          const isFirstInline = inline && idx === 0
+          const currentPadding = isFirstInline ? '' : spacing
+          const currentNewline = isFirstInline ? '' : '\n'
+          return `${currentNewline}${currentPadding}${key}: ${toMarkdown(value, indent + 1)}`
+        })
         .join('')
     }
 

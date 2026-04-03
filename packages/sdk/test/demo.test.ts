@@ -31,9 +31,6 @@ describe('ContextDistiller Demo', () => {
 
     const result = distill(input, {
       tokenCounter: estimateTokens,
-      enableAliasing: true,
-      tableifyArrays: true,
-      relativeDates: true,
       maxStringLength: 100,
       stringTruncationStrategy: 'middle',
     })
@@ -44,11 +41,12 @@ describe('ContextDistiller Demo', () => {
     console.log('\n' + '='.repeat(20) + ' OUTPUT (DMD) ' + '='.repeat(20))
     console.log(result.contextString)
 
-    console.log(`Original Tokens (est):  ${result.stats.originalTokens}`)
-    console.log(`Distilled Tokens (est): ${result.stats.distilledTokens}`)
-    const reductionPercent = (result.stats.reductionRatio * 100).toFixed(1)
-    console.log(`Reduction:              ${reductionPercent}%`)
-    console.log(`Aliased IDs:            ${result.reverseMap.size}`)
+    console.log(`Baseline Tokens (Pretty):  ${result.stats.baselineTokens}`)
+    console.log(`Minified Tokens (Bench):  ${result.stats.minifiedTokens}`)
+    console.log(`Distilled Tokens (DMD):   ${result.stats.distilledTokens}`)
+    console.log(`Reduction (Headline):     ${result.stats.reductionPercent}%`)
+    console.log(`Efficiency Gain (Moat):   ${result.stats.efficiencyGain}%`)
+    console.log(`Aliased IDs:              ${result.reverseMap.size}`)
 
     if (result.reverseMap.size > 0) {
       console.log('\n' + '='.repeat(20) + ' REVERSE MAP ' + '='.repeat(20))

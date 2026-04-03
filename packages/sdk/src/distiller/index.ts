@@ -2,8 +2,13 @@ import { Budgeter } from './budgeter.js'
 import { scrub, truncate, formatOutput } from './engines.js'
 import { identifyInput, tryParseJSON, deduplicateLines } from './preprocessor.js'
 import { presets } from './presets.js'
-import type { DistillOptions, DistillResult, LLMProvider, OutputFormat } from './types.js'
-import { DistillError } from './types.js'
+import {
+  type DistillOptions,
+  type DistillResult,
+  type LLMProvider,
+  type OutputFormat,
+  DistillError,
+} from './types.js'
 
 export * from './types.js'
 export { presets }
@@ -141,7 +146,6 @@ export function distill(input: unknown, options: DistillOptions = {}): DistillRe
 
   const start = Date.now()
   const reverseMap = new Map<string, string>()
-  let originalTokens = 0
 
   let processed: unknown = input
 
@@ -177,16 +181,25 @@ export function distill(input: unknown, options: DistillOptions = {}): DistillRe
         // Unstructured plain text (e.g., logs). Result is already deduplicated.
         // We return early as structured pipeline (scrubbing/truncating nodes) doesn't apply.
         const textInput = String(input)
-        originalTokens = counter(textInput)
+        const baselineTokens = counter(textInput)
+        const minifiedTokens = counter(textInput)
         const distilledTokens = counter(processed as string)
 
         return {
           contextString: processed as string,
           reverseMap: new Map(),
           stats: {
-            originalTokens,
+            baselineTokens,
+            minifiedTokens,
             distilledTokens,
-            reductionRatio: originalTokens > 0 ? 1 - distilledTokens / originalTokens : 0,
+            reductionPercent:
+              baselineTokens > 0
+                ? Number(((1 - distilledTokens / baselineTokens) * 100).toFixed(1))
+                : 0,
+            efficiencyGain:
+              minifiedTokens > 0
+                ? Number(((1 - distilledTokens / minifiedTokens) * 100).toFixed(1))
+                : 0,
             durationMs: Date.now() - start,
           },
         }
@@ -194,25 +207,29 @@ export function distill(input: unknown, options: DistillOptions = {}): DistillRe
     }
   }
 
-  // 3. Initial Statistics (Original Tokens)
+  // 3. Multi-Baseline Statistics (The "User's Truth" vs "Technical Floor")
   const defaults = getOutputDefaults(activeOptions.targetProvider)
   const format = activeOptions.outputFormat ?? defaults.outputFormat
 
-  try {
-    const originalString = JSON.stringify(processed)
-    originalTokens = counter(originalString)
-  } catch {
-    originalTokens = counter(String(processed))
-  }
+  const prettyJson = JSON.stringify(processed, null, 2)
+  const minifiedJson = JSON.stringify(processed)
+
+  const baselineTokens = counter(prettyJson)
+  const minifiedTokens = counter(minifiedJson)
 
   const warnings: string[] = []
 
   // 4. Unified Distillation Pass (Scrub + Date + Alias + PII)
+  // DMD Format defaults to aggressive reduction features (opt-out)
+  const isDMD = format === 'dmd'
   processed = scrub(
     processed,
     {
       ...activeOptions,
-      aliasIds: activeOptions.enableAliasing === true,
+      aliasIds: activeOptions.enableAliasing !== false,
+      relativeDates: !!(isDMD
+        ? activeOptions.relativeDates !== false
+        : activeOptions.relativeDates),
     },
     reverseMap,
     activeOptions.redactPII,
@@ -236,7 +253,7 @@ export function distill(input: unknown, options: DistillOptions = {}): DistillRe
 
   // 7. Formatter (Engine D - Optimized for LLM)
   const contextString = formatOutput(processed, format, {
-    tableifyArrays: activeOptions.tableifyArrays ?? false,
+    tableifyArrays: isDMD ? activeOptions.tableifyArrays !== false : !!activeOptions.tableifyArrays,
     tableifyThreshold: activeOptions.tableifyThreshold ?? 3,
   })
 
@@ -247,9 +264,13 @@ export function distill(input: unknown, options: DistillOptions = {}): DistillRe
     contextString,
     reverseMap,
     stats: {
-      originalTokens,
+      baselineTokens,
+      minifiedTokens,
       distilledTokens,
-      reductionRatio: originalTokens > 0 ? 1 - distilledTokens / originalTokens : 0,
+      reductionPercent:
+        baselineTokens > 0 ? Number(((1 - distilledTokens / baselineTokens) * 100).toFixed(1)) : 0,
+      efficiencyGain:
+        minifiedTokens > 0 ? Number(((1 - distilledTokens / minifiedTokens) * 100).toFixed(1)) : 0,
       durationMs: Date.now() - start,
     },
     ...(warnings && warnings.length > 0 ? { warnings } : {}),

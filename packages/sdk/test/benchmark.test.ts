@@ -70,7 +70,7 @@ describe('Multi-Format Performance Comparison', () => {
   ]
 
   it('compares Raw vs YAML vs DMD (ContextDistiller)', () => {
-    const colWidths = [30, 8, 8, 8, 8, 12, 12]
+    const colWidths = [30, 8, 8, 8, 8, 12, 12, 12]
     const header = [
       'Dataset'.padEnd(colWidths[0]),
       'Raw'.padStart(colWidths[1]),
@@ -78,7 +78,8 @@ describe('Multi-Format Performance Comparison', () => {
       'DMD'.padStart(colWidths[3]),
       'Trunc'.padStart(colWidths[4]),
       'Budgeted'.padStart(colWidths[5]),
-      'Reduction'.padStart(colWidths[6]),
+      'Headline'.padStart(colWidths[6]),
+      'Moat'.padStart(colWidths[7]),
     ].join(' | ')
 
     console.log('\n' + '='.repeat(header.length + 4))
@@ -94,34 +95,27 @@ describe('Multi-Format Performance Comparison', () => {
       const yamlStr = yaml.dump(tc.data)
       const yamlTokens = tokenCounter(yamlStr)
 
-      // 3. DMD (Default - NO Truncation now)
-      const { contextString: dmdStr } = distill(tc.data, { tokenCounter })
-      const dmdTokens = tokenCounter(dmdStr)
-
-      // 4. DMD (With Truncation @ 500 chars)
-      const { contextString: truncStr } = distill(tc.data, { tokenCounter, maxStringLength: 500 })
-      const truncTokens = tokenCounter(truncStr)
-
-      // 5. DMD (Budgeted & Secure)
-      const { contextString: budgetStr } = distill(tc.data, {
+      // 3. Primary Pass (DMD or Budgeted)
+      const result = distill(tc.data, {
         tokenCounter,
-        redactPII: {},
+        redactPII: tc.budget ? {} : undefined,
         budget: tc.budget ? { maxContextTokens: tc.budget } : undefined,
       })
-      const budgetTokens = tokenCounter(budgetStr)
 
-      const finalTokens = budgetTokens || dmdTokens
-      const reductionRatio = 1 - finalTokens / rawTokens
-      const reductionDisplay = (reductionRatio * 100).toFixed(1)
+      // 4. Truncation Comparison Pass
+      const resultTrunc = distill(tc.data, { tokenCounter, maxStringLength: 500 })
 
       const row = [
         tc.name.padEnd(colWidths[0]),
         String(rawTokens).padStart(colWidths[1]),
         String(yamlTokens).padStart(colWidths[2]),
-        String(dmdTokens).padStart(colWidths[3]),
-        String(truncTokens).padStart(colWidths[4]),
-        (tc.budget ? `${budgetTokens} (max ${tc.budget})` : '-').padStart(colWidths[5]),
-        `${reductionDisplay}%`.padStart(colWidths[6]),
+        String(result.stats.distilledTokens).padStart(colWidths[3]),
+        String(resultTrunc.stats.distilledTokens).padStart(colWidths[4]),
+        (tc.budget ? `${result.stats.distilledTokens} (max ${tc.budget})` : '-').padStart(
+          colWidths[5],
+        ),
+        `${result.stats.reductionPercent}%`.padStart(colWidths[6]),
+        `${result.stats.efficiencyGain}%`.padStart(colWidths[7]),
       ].join(' | ')
 
       console.log(`| ${row} |`)
