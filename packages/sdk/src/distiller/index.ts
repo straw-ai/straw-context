@@ -3,6 +3,7 @@ import { scrub, truncate, formatOutput } from './engines.js'
 import { identifyInput, tryParseJSON, deduplicateLines } from './preprocessor.js'
 import { presets } from './presets.js'
 import type { DistillOptions, DistillResult, LLMProvider, OutputFormat } from './types.js'
+import { DistillError } from './types.js'
 
 export * from './types.js'
 export { presets }
@@ -30,26 +31,6 @@ function recursiveTruncate(
   return node
 }
 
-function estimateTokens(text: string): number {
-  if (!text) {
-    return 0
-  }
-
-  const chunks = text.match(/[\w]+|[^\w\s]+/g)
-  if (!chunks) {
-    return Math.ceil(text.length / 3.5)
-  }
-
-  // Replaced `for...of` with `.reduce()` to comply with Airbnb standards
-  return chunks.reduce((estimatedCount, chunk) => {
-    // Long alphanumeric words usually get split into 3-4 char BPE sub-tokens
-    if (chunk.length > 4 && /\w/.test(chunk)) {
-      return estimatedCount + Math.ceil(chunk.length / 4)
-    }
-    // Short words or punctuation blocks count as roughly 1 token
-    return estimatedCount + 1
-  }, 0)
-}
 
 function getOutputDefaults(provider?: LLMProvider): { outputFormat: OutputFormat } {
   switch (provider) {
@@ -122,6 +103,16 @@ export function distill(input: unknown, options: DistillOptions = {}): DistillRe
 
   let processed: unknown = input
 
+  const counter = activeOptions.tokenCounter ?? (() => 0)
+
+  // 1.5 Validation: Budgeting requires an explicit token counter
+  if (activeOptions.budget && !activeOptions.tokenCounter) {
+    throw new DistillError(
+      'A `tokenCounter` MUST be provided in `DistillOptions` when a `budget` is specified. ' +
+        'Providing an accurate tokenizer (e.g. Tiktoken) is essential for production context window enforcement.',
+    )
+  }
+
   // 1. Deduplication (Unstructured Strings)
   if (typeof processed === 'string') {
     processed = deduplicateLines(processed, activeOptions.dedupe)
@@ -144,11 +135,11 @@ export function distill(input: unknown, options: DistillOptions = {}): DistillRe
         // Unstructured plain text (e.g., logs). Result is already deduplicated.
         // We return early as structured pipeline (scrubbing/truncating nodes) doesn't apply.
         const textInput = String(input)
-        originalTokens = estimateTokens(textInput)
-        const distilledTokens = estimateTokens(processed)
+        originalTokens = counter(textInput)
+        const distilledTokens = counter(processed as string)
 
         return {
-          contextString: processed,
+          contextString: processed as string,
           reverseMap: new Map(),
           stats: {
             originalTokens,
@@ -162,7 +153,6 @@ export function distill(input: unknown, options: DistillOptions = {}): DistillRe
   }
 
   // 3. Initial Statistics (Original Tokens)
-  const counter = activeOptions.tokenCounter ?? estimateTokens
   const defaults = getOutputDefaults(activeOptions.targetProvider)
   const format = activeOptions.outputFormat ?? defaults.outputFormat
 

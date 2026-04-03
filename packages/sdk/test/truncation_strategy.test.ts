@@ -1,12 +1,13 @@
 import { describe, it, expect } from 'vitest'
 
 import { distill } from '../src/index.js'
+import { estimateTokens } from './estimate.js'
 
 describe('Engine B: String Truncation Strategies', () => {
   const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
 
   it('no longer truncates by default (Deterministic Change)', () => {
-    const res = distill({ text: alphabet })
+    const res = distill({ text: alphabet }, { tokenCounter: estimateTokens })
     // In previous versions, this would have been truncated at 1000.
     // Here we test that even with a smaller implicit limit, it is NOT touched.
     expect(res.contextString).toContain(alphabet)
@@ -14,7 +15,7 @@ describe('Engine B: String Truncation Strategies', () => {
   })
 
   it('uses middle-out truncation when explicitly enabled', () => {
-    const res = distill({ text: alphabet }, { maxStringLength: 20 })
+    const res = distill({ text: alphabet }, { maxStringLength: 20, tokenCounter: estimateTokens })
     // Middle keeps first 8 (0.4 * 20) and last 8
     expect(res.contextString).toContain('ABCDEFGH')
     expect(res.contextString).toContain('3456789')
@@ -24,7 +25,7 @@ describe('Engine B: String Truncation Strategies', () => {
   it('supports end truncation', () => {
     const res = distill(
       { text: alphabet },
-      { maxStringLength: 20, stringTruncationStrategy: 'end' },
+      { maxStringLength: 20, stringTruncationStrategy: 'end', tokenCounter: estimateTokens },
     )
     // End keeps first 16 chars (0.8 * 20 = 16)
     expect(res.contextString).toContain('ABCDEFGHIJKLMNOP')
@@ -34,7 +35,7 @@ describe('Engine B: String Truncation Strategies', () => {
   it('supports start truncation', () => {
     const res = distill(
       { text: alphabet },
-      { maxStringLength: 20, stringTruncationStrategy: 'start' },
+      { maxStringLength: 20, stringTruncationStrategy: 'start', tokenCounter: estimateTokens },
     )
     // Start keeps last 16 chars
     expect(res.contextString).not.toContain('ABCDEFGH')
@@ -50,6 +51,7 @@ describe('Engine B: String Truncation Strategies', () => {
     // Force a tight budget that requires dropping > 30% of nodes
     const res = distill(largeObject, {
       budget: { maxContextTokens: 50 }, // Extremely tight
+      tokenCounter: estimateTokens,
       // maxStringLength: undefined (Default)
     })
 

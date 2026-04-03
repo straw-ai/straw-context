@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 
 import { distill } from '../src/index.js'
+import { estimateTokens } from './estimate.js'
 
 describe('Enterprise: Intelligent Preset Merging', () => {
   it('concatenates dropKeys instead of overwriting them', () => {
@@ -14,6 +15,7 @@ describe('Enterprise: Intelligent Preset Merging', () => {
     const { contextString } = distill(data, {
       preset: 'github',
       dropKeys: ['custom_key'],
+      tokenCounter: estimateTokens,
     })
 
     expect(contextString).not.toContain('node_id')
@@ -30,6 +32,7 @@ describe('Enterprise: Intelligent Preset Merging', () => {
 
     const { contextString } = distill(data, {
       preset: ['github', 'graphql'],
+      tokenCounter: estimateTokens,
     })
 
     expect(contextString).not.toContain('node_id')
@@ -44,6 +47,7 @@ describe('Enterprise: Intelligent Preset Merging', () => {
     const { contextString } = distill(logs, {
       preset: 'stripe',
       dedupe: { enabled: true, threshold: 2 },
+      tokenCounter: estimateTokens,
     })
 
     expect(contextString).toContain('deduplicated')
@@ -58,6 +62,7 @@ describe('Enterprise: Intelligent Preset Merging', () => {
     const { contextString } = distill(data, {
       preset: 'github',
       maxStringLength: 100, // User override (tighter)
+      tokenCounter: estimateTokens,
     })
 
     expect(contextString).toContain('chars truncated')

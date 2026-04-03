@@ -1,11 +1,12 @@
 import { describe, it, expect } from 'vitest'
 
 import { distill } from '../src/index.js'
+import { estimateTokens } from './estimate.js'
 
 describe('ContextDistiller', () => {
   describe('Engine A: Scrubber', () => {
     it('resolves conflicts by letting preserveKeys win', () => {
-      const { contextString } = distill({ id: 123 }, { dropKeys: ['id'], preserveKeys: ['id'] })
+      const { contextString } = distill({ id: 123 }, { dropKeys: ['id'], preserveKeys: ['id'], tokenCounter: estimateTokens })
       expect(contextString).toContain('id: 123')
     })
 
@@ -13,7 +14,7 @@ describe('ContextDistiller', () => {
       const a: any = { name: 'A' }
       a.self = a
       // We catch either our custom error or the native JSON.stringify error depending on where it fails
-      expect(() => distill(a)).toThrow()
+      expect(() => distill(a, { tokenCounter: estimateTokens })).toThrow()
     })
 
     it('removes universal noise, nulls, and empty strings', () => {
@@ -26,7 +27,7 @@ describe('ContextDistiller', () => {
         valid: 'data',
       }
 
-      const { contextString } = distill(raw)
+      const { contextString } = distill(raw, { tokenCounter: estimateTokens })
       // Format: "id: 123\nvalid: data"
       expect(contextString).toContain('id: 123')
       expect(contextString).toContain('valid: data')
@@ -37,8 +38,8 @@ describe('ContextDistiller', () => {
     it('preserves empty arrays by default, but drops them if configured', () => {
       const raw = { data: [] }
 
-      expect(distill(raw).contextString).toBe('data: []')
-      expect(distill(raw, { pruneEmptyArrays: true }).contextString).toBe('')
+      expect(distill(raw, { tokenCounter: estimateTokens }).contextString).toBe('data: []')
+      expect(distill(raw, { pruneEmptyArrays: true, tokenCounter: estimateTokens }).contextString).toBe('')
     })
 
     it('supports wildcard pattern matching in dropKeys', () => {
@@ -49,7 +50,7 @@ describe('ContextDistiller', () => {
         external_data: 'ok',
       }
 
-      const { contextString } = distill(raw, { dropKeys: ['*_id', 'internal_*'] })
+      const { contextString } = distill(raw, { dropKeys: ['*_id', 'internal_*'], tokenCounter: estimateTokens })
       expect(contextString).not.toContain('user_id')
       expect(contextString).not.toContain('project_id')
       expect(contextString).not.toContain('secret')
@@ -63,7 +64,7 @@ describe('ContextDistiller', () => {
       }
 
       // __typename is normally dropped by UNIVERSAL_NOISE_KEYS
-      const { contextString } = distill(raw, { preserveKeys: ['__type*', 'important_*'] })
+      const { contextString } = distill(raw, { preserveKeys: ['__type*', 'important_*'], tokenCounter: estimateTokens })
       expect(contextString).toContain('__typename: Noise')
       expect(contextString).toContain('important_metadata: keep')
     })
@@ -73,7 +74,7 @@ describe('ContextDistiller', () => {
     it('truncates long strings middle-out', () => {
       // Use characters that aren't hex to avoid Aliaser (Engine C) matching them as IDs
       const longString = 'X'.repeat(100) + 'Y'.repeat(1000) + 'Z'.repeat(100)
-      const { contextString } = distill({ text: longString }, { maxStringLength: 100 })
+      const { contextString } = distill({ text: longString }, { maxStringLength: 100, tokenCounter: estimateTokens })
 
       expect(contextString).toContain('...[')
       expect(contextString).toContain('chars truncated]...')
@@ -89,7 +90,7 @@ describe('ContextDistiller', () => {
       const uuid = '550e8400-e29b-41d4-a716-446655440000'
       const data = { user_id: uuid, meta: `Ref: ${uuid}` }
 
-      const { contextString, reverseMap } = distill(data, { enableAliasing: true })
+      const { contextString, reverseMap } = distill(data, { enableAliasing: true, tokenCounter: estimateTokens })
 
       expect(contextString).toContain('$ID_0')
       expect(contextString).not.toContain(uuid)
@@ -107,7 +108,7 @@ describe('ContextDistiller', () => {
         ],
       }
 
-      const { contextString } = distill(data, { tableifyArrays: true, tableifyThreshold: 3 })
+      const { contextString } = distill(data, { tableifyArrays: true, tableifyThreshold: 3, tokenCounter: estimateTokens })
 
       expect(contextString).toContain('| id | name | role |')
       expect(contextString).toContain('| --- | --- | --- |')
@@ -120,7 +121,7 @@ describe('ContextDistiller', () => {
         { id: 2, name: 'Bob' },
       ]
 
-      const { contextString } = distill(data, { tableifyThreshold: 3 })
+      const { contextString } = distill(data, { tableifyThreshold: 3, tokenCounter: estimateTokens })
       expect(contextString).not.toContain('| id |')
       expect(contextString).toContain('id: 1')
     })
@@ -132,7 +133,7 @@ describe('ContextDistiller', () => {
       const fiveDaysAgo = new Date(now.getTime() - 5 * 86400 * 1000).toISOString()
       const data = { created: fiveDaysAgo }
 
-      const { contextString } = distill(data, { relativeDates: true })
+      const { contextString } = distill(data, { relativeDates: true, tokenCounter: estimateTokens })
       expect(contextString).toContain('created: 5 days ago')
     })
 
@@ -141,7 +142,7 @@ describe('ContextDistiller', () => {
       const inTwoYears = new Date(now.getTime() + 2 * 31536000 * 1000).toISOString()
       const data = { expires: inTwoYears }
 
-      const { contextString } = distill(data, { relativeDates: true })
+      const { contextString } = distill(data, { relativeDates: true, tokenCounter: estimateTokens })
       expect(contextString).toContain('expires: in 2 years')
     })
 
@@ -149,7 +150,7 @@ describe('ContextDistiller', () => {
       const date = '2024-03-31T00:00:00Z'
       const data = { date }
 
-      const { contextString } = distill(data, { relativeDates: false })
+      const { contextString } = distill(data, { relativeDates: false, tokenCounter: estimateTokens })
       expect(contextString).toContain(`date: ${date}`)
     })
 
@@ -158,7 +159,7 @@ describe('ContextDistiller', () => {
       const target = new Date('2026-03-30T10:00:00Z').toISOString() // 3 days before anchor
       const data = { event: target }
 
-      const { contextString } = distill(data, { relativeDates: true, dateAnchor: anchor })
+      const { contextString } = distill(data, { relativeDates: true, dateAnchor: anchor, tokenCounter: estimateTokens })
       expect(contextString).toContain('event: 3 days ago')
     })
   })
@@ -166,14 +167,14 @@ describe('ContextDistiller', () => {
   describe('Input Guard & Configuration', () => {
     it('automatically parses valid JSON strings by default', () => {
       const json = JSON.stringify({ hello: 'world' })
-      const { contextString } = distill(json)
+      const { contextString } = distill(json, { tokenCounter: estimateTokens })
       expect(contextString).toBe('hello: world')
     })
 
     it('can disable the entire Input Guard', () => {
       const json = JSON.stringify({ hello: 'world' })
       // With guard disabled, it shouldn't auto-parse JSON, should treat as plain text
-      const { contextString } = distill(json, { enableInputGuard: false })
+      const { contextString } = distill(json, { enableInputGuard: false, tokenCounter: estimateTokens })
       expect(contextString).toBe(json)
     })
     it('respects custom deduplication threshold', () => {
@@ -185,19 +186,20 @@ describe('ContextDistiller', () => {
       ].join('\n')
 
       // Default threshold is 5, so 4 lines shouldn't dedupe by default
-      const { contextString: defaultOut } = distill(logs)
+      const { contextString: defaultOut } = distill(logs, { tokenCounter: estimateTokens })
       expect(defaultOut).not.toContain('deduplicated')
 
       // Set threshold to 2, it should now dedupe
       const { contextString: customOut } = distill(logs, {
         dedupe: { threshold: 2, contextBuffer: 1, prefixLength: 10 },
+        tokenCounter: estimateTokens,
       })
       expect(customOut).toContain('lines with prefix "[INFO] Ide" deduplicated')
     })
 
     it('can disable deduplication via config', () => {
       const logs = Array(10).fill('[INFO] Repeat').join('\n')
-      const { contextString } = distill(logs, { dedupe: { enabled: false } })
+      const { contextString } = distill(logs, { dedupe: { enabled: false }, tokenCounter: estimateTokens })
       expect(contextString).not.toContain('deduplicated')
       expect(contextString.split('\n').length).toBe(10)
     })
@@ -207,6 +209,7 @@ describe('ContextDistiller', () => {
       const { contextString } = distill(logs, {
         enableInputGuard: false,
         dedupe: { threshold: 2, contextBuffer: 1, prefixLength: 10 },
+        tokenCounter: estimateTokens,
       })
       expect(contextString).toContain('deduplicated')
     })
@@ -220,7 +223,7 @@ describe('ContextDistiller', () => {
       }
 
       // Drop only user.internal_id, but keep project.internal_id
-      const { contextString } = distill(data, { dropKeys: ['user.internal_id'] })
+      const { contextString } = distill(data, { dropKeys: ['user.internal_id'], tokenCounter: estimateTokens })
       expect(contextString).not.toContain('user:\n  internal_id')
       expect(contextString).toContain('project:')
       expect(contextString).toContain('internal_id: secret')
@@ -232,7 +235,7 @@ describe('ContextDistiller', () => {
         other: 'info',
       }
 
-      const { contextString } = distill(data, { preserveKeys: ['avatar_url'] })
+      const { contextString } = distill(data, { preserveKeys: ['avatar_url'], tokenCounter: estimateTokens })
       expect(contextString).toContain('avatar_url: https://...')
     })
 
@@ -243,10 +246,10 @@ describe('ContextDistiller', () => {
       }
 
       // Default is enabled (dropped)
-      expect(distill(data).contextString).not.toContain('avatar_url')
+      expect(distill(data, { tokenCounter: estimateTokens }).contextString).not.toContain('avatar_url')
 
       // Explicitly disabled (kept)
-      const { contextString } = distill(data, { useSystemBlocklist: false })
+      const { contextString } = distill(data, { useSystemBlocklist: false, tokenCounter: estimateTokens })
       expect(contextString).toContain('avatar_url: https://...')
     })
 
@@ -257,7 +260,7 @@ describe('ContextDistiller', () => {
         login: 'octocat',
       }
 
-      const { contextString } = distill(githubData, { preset: 'github' })
+      const { contextString } = distill(githubData, { preset: 'github', tokenCounter: estimateTokens })
       expect(contextString).toContain('login: octocat')
       expect(contextString).not.toContain('node_id')
     })
@@ -268,7 +271,7 @@ describe('ContextDistiller', () => {
         deep: { nested: { css_classes: 'bar' } },
       }
 
-      const { contextString } = distill(data, { dropKeys: ['*.css_classes'] })
+      const { contextString } = distill(data, { dropKeys: ['*.css_classes'], tokenCounter: estimateTokens })
       expect(contextString).not.toContain('css_classes')
     })
   })
@@ -282,6 +285,7 @@ describe('ContextDistiller', () => {
       }
 
       const { contextString } = distill(data, {
+        tokenCounter: estimateTokens,
         filterNode: (key, _value) => {
           if (key === 'nuke_me') return false // DROP
           if (key === 'sensitive') return true // KEEP (no further processing on this node)
@@ -301,6 +305,7 @@ describe('ContextDistiller', () => {
 
       let capturedPath = ''
       distill(data, {
+        tokenCounter: estimateTokens,
         filterNode: (_key, _value, path) => {
           if (path === 'user.profile.email') {
             capturedPath = path
@@ -318,6 +323,7 @@ describe('ContextDistiller', () => {
       }
       const { contextString } = distill(data, {
         redactPII: {}, // Enable PII redaction
+        tokenCounter: estimateTokens,
         filterNode: (key) => key === 'sensitive', // Explicitly keep
       })
       // Should still be redacted!
@@ -330,6 +336,7 @@ describe('ContextDistiller', () => {
       }
       const { contextString } = distill(data, {
         enableAliasing: true,
+        tokenCounter: estimateTokens,
         filterNode: (key) => key === 'user_uuid', // Explicitly keep
       })
       // Should still be aliased!
@@ -340,13 +347,13 @@ describe('ContextDistiller', () => {
   describe('Enterprise: Zero-Trust (Allowlist Mode)', () => {
     it('drops everything by default in allowlist mode', () => {
       const data = { name: 'Alice', secret: '1234' }
-      const { contextString } = distill(data, { mode: 'allowlist' })
+      const { contextString } = distill(data, { mode: 'allowlist', tokenCounter: estimateTokens })
       expect(contextString).toBe('')
     })
 
     it('only keeps explicitly preserved keys', () => {
       const data = { name: 'Alice', secret: '1234' }
-      const { contextString } = distill(data, { mode: 'allowlist', preserveKeys: ['name'] })
+      const { contextString } = distill(data, { mode: 'allowlist', preserveKeys: ['name'], tokenCounter: estimateTokens })
       expect(contextString).toBe('name: Alice')
     })
 
@@ -361,6 +368,7 @@ describe('ContextDistiller', () => {
       const { contextString } = distill(data, {
         mode: 'allowlist',
         preserveKeys: ['user.profile.name'],
+        tokenCounter: estimateTokens,
       })
       expect(contextString).toBe('user: \n  profile: \n    name: Alice')
       expect(contextString).not.toContain('bio')
@@ -378,6 +386,7 @@ describe('ContextDistiller', () => {
       const { contextString } = distill(data, {
         mode: 'allowlist',
         preserveKeys: ['items.*.val'],
+        tokenCounter: estimateTokens,
       })
       expect(contextString).toContain('val: A')
       expect(contextString).toContain('val: B')
@@ -393,6 +402,7 @@ describe('ContextDistiller', () => {
       const { contextString } = distill(data, {
         mode: 'allowlist',
         preserveKeys: ['config'],
+        tokenCounter: estimateTokens,
       })
       expect(contextString).toContain('theme: dark')
       expect(contextString).toContain('layout: grid')
@@ -404,7 +414,7 @@ describe('ContextDistiller', () => {
     it('distills multiple fragments as a unified payload', () => {
       const fragments = [{ user: 'Alice' }, { user: 'Bob' }]
 
-      const { contextString } = distill(fragments)
+      const { contextString } = distill(fragments, { tokenCounter: estimateTokens })
       expect(contextString).toContain('Alice')
       expect(contextString).toContain('Bob')
       // DMD format for arrays is '- \n  key: val' or similar depending on depth

@@ -1,6 +1,7 @@
 import { describe, it } from 'vitest'
 
 import { distill } from '../src/index.js'
+import { estimateTokens } from './estimate.js'
 
 describe('ContextDistiller Demo', () => {
   it('shows Input vs Output in the console', () => {
@@ -28,7 +29,7 @@ describe('ContextDistiller Demo', () => {
       ],
     }
 
-    const result = distill(input, { maxStringLength: 100 })
+    const result = distill(input, { maxStringLength: 100, tokenCounter: estimateTokens })
 
     console.log('\n' + '='.repeat(20) + ' INPUT ' + '='.repeat(20))
     console.log(JSON.stringify(input, null, 2))
