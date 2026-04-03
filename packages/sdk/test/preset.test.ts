@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest'
+
 import { distill } from '../src/index.js'
 
 describe('Enterprise: Intelligent Preset Merging', () => {
@@ -38,7 +39,7 @@ describe('Enterprise: Intelligent Preset Merging', () => {
 
   it('merges nested configuration blocks like dedupe', () => {
     const logs = Array(10).fill('[INFO] Repeat').join('\n')
-    
+
     // Stripe preset doesn't have dedupe config, but we can provide it
     const { contextString } = distill(logs, {
       preset: 'stripe',

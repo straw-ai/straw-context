@@ -1,9 +1,8 @@
 import { Budgeter } from './budgeter.js'
 import { scrub, truncate, formatOutput } from './engines.js'
 import { identifyInput, tryParseJSON, deduplicateLines } from './preprocessor.js'
-import type { DistillOptions, DistillResult, LLMProvider, OutputFormat } from './types.js'
-
 import { presets } from './presets.js'
+import type { DistillOptions, DistillResult, LLMProvider, OutputFormat } from './types.js'
 
 export * from './types.js'
 export { presets }
