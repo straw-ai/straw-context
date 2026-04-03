@@ -101,8 +101,14 @@ export function scrub(
     path: string,
     pathParts: string[],
     isAllowedParent: boolean,
+    isExplicitlyKept: boolean,
   ): boolean => {
-    // 0. If parent was allow-listed, we don't drop anything unless explicitly blocked
+    // 0. Middleware Priority: If the user explicitly returned 'true' via filterNode, we keep it.
+    if (isExplicitlyKept) {
+      return false
+    }
+
+    // 1. If parent was allow-listed, we don't drop anything unless explicitly blocked
     if (isAllowedParent) {
       return isMatched(key, path, dropLiterals, dropPatterns)
     }
@@ -122,7 +128,7 @@ export function scrub(
       return true
     }
 
-    // 4. System's DEFAULT list (if enabled)
+    // 5. System's DEFAULT list (if enabled)
     if (useDefaultFilter && DEFAULT_NOISE_KEYS.has(key)) {
       return true
     }
@@ -143,18 +149,23 @@ export function scrub(
     visited = new WeakSet(),
     isAllowedParent = false,
   ): unknown {
+    let isExplicitlyKept = false
     // 0. Middleware Escape Hatch
     if (options.filterNode && key) {
       const decision = options.filterNode(key, node, path)
-      if (decision === true) return node // EXPLICIT KEEP
-      if (decision === false) return undefined // EXPLICIT DROP
+      if (decision === true) {
+        isExplicitlyKept = true
+      } else if (decision === false) {
+        return undefined // EXPLICIT DROP (terminal)
+      }
     }
 
-    const currentMatched = key ? isMatched(key, path, preserveLiterals, preservePatterns) : false
+    const currentMatched =
+      (key ? isMatched(key, path, preserveLiterals, preservePatterns) : false) || isExplicitlyKept
     const currentAllowed = isAllowedParent || currentMatched
 
     // 1. Drop Logic
-    if (key && shouldDrop(key, path, pathParts, isAllowedParent)) {
+    if (key && shouldDrop(key, path, pathParts, isAllowedParent, isExplicitlyKept)) {
       return undefined
     }
 

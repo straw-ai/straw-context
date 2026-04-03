@@ -311,6 +311,30 @@ describe('ContextDistiller', () => {
 
       expect(capturedPath).toBe('user.profile.email')
     })
+
+    it('remains non-terminal for "true", allowing subsequent PII redaction', () => {
+      const data = {
+        sensitive: 'Contact me at alice@example.com',
+      }
+      const { contextString } = distill(data, {
+        redactPII: {}, // Enable PII redaction
+        filterNode: (key) => key === 'sensitive', // Explicitly keep
+      })
+      // Should still be redacted!
+      expect(contextString).toContain('sensitive: Contact me at <EMAIL_0>')
+    })
+
+    it('remains non-terminal for "true", allowing subsequent ID aliasing', () => {
+      const data = {
+        user_uuid: '550e8400-e29b-41d4-a716-446655440000',
+      }
+      const { contextString } = distill(data, {
+        enableAliasing: true,
+        filterNode: (key) => key === 'user_uuid', // Explicitly keep
+      })
+      // Should still be aliased!
+      expect(contextString).toContain('user_uuid: $ID_0')
+    })
   })
 
   describe('Enterprise: Zero-Trust (Allowlist Mode)', () => {
