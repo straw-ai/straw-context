@@ -1,11 +1,15 @@
-import { DEFAULT_NOISE_KEYS } from './constants.js'
-import { redactString } from './pii.js'
+import yaml from 'js-yaml'
+
+import { genericBlocklist } from './constants.js'
+import { redactString, defaultRedactors } from './pii.js'
 import {
-  DistillError,
   type ScrubberOptions,
   type FilterNodeCallback,
   type OutputFormat,
   type RedactOptions,
+  type FilterRule,
+  type AliaserRule,
+  type RedactorRule,
 } from './types.js'
 
 /**
@@ -13,9 +17,19 @@ import {
  * Unified pipeline for scrubbing, aliasing, and date formatting.
  */
 
+export const uuidAliaser: AliaserRule = {
+  name: 'uuid',
+  pattern: /\b[0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12}\b/gi,
+  prefix: 'UUID',
+} as const
+
+export const shaAliaser: AliaserRule = {
+  name: 'sha',
+  pattern: /\b[a-f0-9]{32,128}\b/gi,
+  prefix: 'SHA',
+} as const
+
 const ISO_DATE_REGEX = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}(:?\d{2})?)$/
-const ID_REGEX =
-  /\b([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}|[a-f0-9]{40}|[a-f0-9]{64}|[a-f0-9]{128})\b/gi
 
 // Hoisted Intl.RelativeTimeFormat for significant performance gains
 const RELATIVE_TIME_FORMATTER = new Intl.RelativeTimeFormat('en', {
@@ -33,7 +47,6 @@ function globToRegex(pattern: string): RegExp {
 
 /**
  * Unified scrubber implementation.
- * Performs a single pass over the input to scrub noise, alias IDs, and format dates.
  */
 export function scrub(
   input: unknown,
@@ -41,31 +54,47 @@ export function scrub(
     relativeDates?: boolean
     aliasIds?: boolean
     dateAnchor?: Date
+    maxDepth?: number
     filterNode?: FilterNodeCallback
+    filters?: FilterRule[]
+    aliaser?: AliaserRule[]
+    redactors?: RedactorRule[]
+    debug?: boolean
   },
   reverseMap: Map<string, string>,
   redactPII?: RedactOptions,
   warnings?: string[],
+  debugLogs?: string[],
 ): unknown {
   const mode = options.mode ?? 'blocklist'
-  const allDropKeys = options.dropKeys || []
   const allPreserveKeys = options.preserveKeys || []
-  const useDefaultFilter = options.useSystemBlocklist ?? options.useDefaultBlacklist ?? true
-  const pruneEmptyValues = options.pruneEmptyValues !== false
 
-  const dropPatterns = allDropKeys.filter((k) => k.includes('*')).map(globToRegex)
-  const dropLiterals = new Set(allDropKeys.filter((k) => !k.includes('*')))
+  // Combine blocklist if in blocklist mode
+  const activeBlocklist = options.blocklist ?? [genericBlocklist]
+  const flattenedNoise = mode === 'blocklist' ? activeBlocklist.flat() : []
+  const allDropKeys = [...(options.dropKeys || []), ...flattenedNoise]
 
-  const preservePatterns = allPreserveKeys.filter((k) => k.includes('*')).map(globToRegex)
-  const preserveLiterals = new Set(allPreserveKeys.filter((k) => !k.includes('*')))
+  const pruning = options.pruning ?? {
+    null: true,
+    undefined: true,
+    emptyString: true,
+    object: true,
+  }
+  const maxDepth = options.maxDepth ?? 50
+
+  const dropPatterns = allDropKeys.filter((k: string) => k.includes('*')).map(globToRegex)
+  const dropLiterals = new Set<string>(allDropKeys.filter((k: string) => !k.includes('*')))
+
+  const preservePatterns = allPreserveKeys.filter((k: string) => k.includes('*')).map(globToRegex)
+  const preserveLiterals = new Set<string>(allPreserveKeys.filter((k: string) => !k.includes('*')))
 
   const isMatched = (key: string, path: string, literals: Set<string>, patterns: RegExp[]) =>
     literals.has(key) || literals.has(path) || patterns.some((re) => re.test(key) || re.test(path))
 
   const parsedPreservePrefixes = allPreserveKeys
-    .filter((k) => k.includes('*'))
-    .map((k) => k.split('.'))
-  const literalPreserveKeys = allPreserveKeys.filter((k) => !k.includes('*'))
+    .filter((k: string) => k.includes('*'))
+    .map((k: string) => k.split('.'))
+  const literalPreserveKeys = allPreserveKeys.filter((k: string) => !k.includes('*'))
 
   const isPrefixMatch = (pathParts: string[], path: string): boolean => {
     for (const pk of literalPreserveKeys) {
@@ -124,22 +153,70 @@ export function scrub(
       return !isPrefixMatch(pathParts, path)
     }
 
-    // 3. User's explicit DROP list
-    if (isMatched(key, path, dropLiterals, dropPatterns)) {
-      return true
+    // 4. Custom Filters (Regex Rules) - Highest User Priority
+    if (options.filters && options.filters.length > 0) {
+      for (const rule of options.filters) {
+        let matched = false
+        if (rule.key && rule.key.test(key)) matched = true
+        if (rule.path && rule.path.test(path)) matched = true
+
+        if (matched) {
+          if (rule.action === 'keep') {
+            if (debugLogs)
+              debugLogs.push(`[Filter] KEEP on "${path}" matched ${String(rule.key || rule.path)}`)
+            return false
+          }
+          if (rule.action === 'drop') {
+            if (debugLogs)
+              debugLogs.push(`[Filter] DROP on "${path}" matched ${String(rule.key || rule.path)}`)
+            return true
+          }
+        }
+      }
     }
 
-    // 5. System's DEFAULT list (if enabled)
-    if (useDefaultFilter && DEFAULT_NOISE_KEYS.has(key)) {
+    // 5. User's explicit DROP list (Includes modular blocklist)
+    if (isMatched(key, path, dropLiterals, dropPatterns)) {
+      if (debugLogs) debugLogs.push(`[Scrubber] Dropping blocklist key: "${path}"`)
       return true
     }
 
     return false
   }
 
-  let idCounter = 0
+  let activeAliaser: AliaserRule[] = []
+  if (options.aliaser && options.aliaser.length > 0) {
+    activeAliaser = options.aliaser
+  } else if (options.aliasIds !== false) {
+    activeAliaser = [uuidAliaser, shaAliaser]
+  }
+
+  let activeRedactors: RedactorRule[] = []
+  if (options.redactors && options.redactors.length > 0) {
+    activeRedactors = options.redactors
+  } else if (redactPII) {
+    const isObj = typeof redactPII === 'object'
+    const custom = isObj ? redactPII.customRules : []
+    const types = isObj ? redactPII.types : undefined
+
+    const customRules: RedactorRule[] = (custom || []).map((c, i) => {
+      const cleanPrefix = c.replacement.replace(/[<>]/g, '')
+      return {
+        name: `custom-${i}`,
+        pattern: c.pattern,
+        prefix: cleanPrefix,
+      }
+    })
+
+    activeRedactors = [...defaultRedactors, ...customRules]
+    if (types && types.length > 0) {
+      activeRedactors = activeRedactors.filter((r) => types.includes(r.name as any))
+    }
+  }
+
+  const aliaserCounters = new Map<string, number>()
+  const piiCounters = new Map<string, number>()
   const forwardMap = new Map<string, string>()
-  const piiCounters: Record<string, number> = {}
 
   // THE SINGLE PASS WALKER (Scrub + Date + Alias)
   function walk(
@@ -149,14 +226,25 @@ export function scrub(
     pathParts: string[] = [],
     visited = new WeakSet(),
     isAllowedParent = false,
+    depth = 0,
   ): unknown {
+    if (depth > maxDepth) {
+      if (warnings) {
+        warnings.push(
+          `Max depth of ${maxDepth} reached at path: "${path || '(root)'}". Node pruned.`,
+        )
+      }
+      return undefined
+    }
     let isExplicitlyKept = false
     // 0. Middleware Escape Hatch
     if (options.filterNode && key) {
       const decision = options.filterNode(key, node, path)
       if (decision === true) {
+        if (debugLogs) debugLogs.push(`[Middleware] KEEP forced at "${path}"`)
         isExplicitlyKept = true
       } else if (decision === false) {
+        if (debugLogs) debugLogs.push(`[Middleware] DROP forced at "${path}"`)
         return undefined // EXPLICIT DROP (terminal)
       }
     }
@@ -171,20 +259,53 @@ export function scrub(
     }
 
     // 2. Primitives & Transforms
-    // Only drop null/empty if pruneEmptyValues is true AND it's not explicitly preserved
-    if (node === null || node === undefined || node === '') {
-      if (pruneEmptyValues && !currentMatched) {
+    if (node === null) {
+      if (pruning.nullReplacement !== undefined) {
+        if (debugLogs)
+          debugLogs.push(
+            `[Scrubber] Replacing null with glyph: "${pruning.nullReplacement}" at "${path}"`,
+          )
+        return pruning.nullReplacement
+      }
+      if (pruning.null !== false && !currentMatched) {
+        if (debugLogs) debugLogs.push(`[Scrubber] Pruning null at "${path}"`)
         return undefined
       }
-      return node
+      return null
+    }
+
+    if (node === undefined) {
+      if (pruning.undefined !== false && !currentMatched) {
+        if (debugLogs) debugLogs.push(`[Scrubber] Pruning undefined at "${path}"`)
+        return undefined
+      }
+      return undefined
+    }
+
+    if (node === '') {
+      if (pruning.emptyString !== false && !currentMatched) {
+        if (debugLogs) debugLogs.push(`[Scrubber] Pruning empty string at "${path}"`)
+        return undefined
+      }
+      return ''
     }
 
     if (typeof node === 'string') {
       let finalStr = node
 
       // Engine F: PII/PHI Redaction (String)
-      if (redactPII) {
-        finalStr = redactString(finalStr, redactPII, forwardMap, reverseMap, piiCounters, path)
+      if (activeRedactors.length > 0) {
+        const onRedact =
+          typeof options.redactPII === 'object' ? options.redactPII.onRedact : undefined
+        finalStr = redactString(
+          finalStr,
+          activeRedactors,
+          forwardMap,
+          reverseMap,
+          piiCounters,
+          path,
+          onRedact,
+        )
       }
 
       // Engine E: Date formatting
@@ -192,18 +313,29 @@ export function scrub(
         finalStr = formatRelativeTime(finalStr, options.dateAnchor)
       }
 
-      // Engine C: Aliasing
-      if (options.aliasIds !== false) {
-        finalStr = finalStr.replace(ID_REGEX, (match) => {
-          if (forwardMap.has(match)) {
-            return forwardMap.get(match)!
-          }
-          const alias = `$ID_${idCounter}`
-          idCounter += 1
-          forwardMap.set(match, alias)
-          reverseMap.set(alias, match)
-          return alias
-        })
+      // Engine C: Aliasing (Programmatic Rules)
+      if (activeAliaser.length > 0) {
+        for (const rule of activeAliaser) {
+          finalStr = finalStr.replace(rule.pattern, (match) => {
+            if (forwardMap.has(match)) {
+              return forwardMap.get(match)!
+            }
+
+            const count = aliaserCounters.get(rule.prefix) || 0
+            const alias = `$${rule.prefix}_${count}`
+            aliaserCounters.set(rule.prefix, count + 1)
+
+            forwardMap.set(match, alias)
+            reverseMap.set(alias, match)
+
+            if (debugLogs) {
+              debugLogs.push(
+                `[Aliaser:${rule.name}] Aliasing "${match.slice(0, 8)}..." -> ${alias} at "${path}"`,
+              )
+            }
+            return alias
+          })
+        }
       }
       return finalStr
     }
@@ -217,6 +349,7 @@ export function scrub(
       if (warnings) {
         warnings.push(`Circular reference detected at path: "${path || '(root)'}". Node pruned.`)
       }
+      if (debugLogs) debugLogs.push(`[Scrubber] Pruning circular reference at "${path}"`)
       return undefined
     }
     visited.add(node)
@@ -232,12 +365,18 @@ export function scrub(
             [...pathParts, strIdx],
             visited,
             currentAllowed,
+            depth + 1,
           )
         })
         .filter((v) => v !== undefined)
 
       if (cleanedArray.length === 0) {
-        return options.pruneEmptyArrays ? undefined : []
+        if (pruning.array) {
+          if (debugLogs)
+            debugLogs.push(`[Scrubber] Dropping array at "${path}" (Empty after scrubbing)`)
+          return undefined
+        }
+        return []
       }
       return cleanedArray
     }
@@ -246,7 +385,15 @@ export function scrub(
     const nodeRecord = node as Record<string, unknown>
     const cleanedObj = Object.entries(nodeRecord).reduce<Record<string, unknown>>((acc, [k, v]) => {
       const subPath = path ? `${path}.${k}` : k
-      const cleanedValue = walk(v, k, subPath, [...pathParts, k], visited, currentAllowed)
+      const cleanedValue = walk(
+        v,
+        k,
+        subPath,
+        [...pathParts, k],
+        visited,
+        currentAllowed,
+        depth + 1,
+      )
 
       if (cleanedValue === undefined) {
         return acc
@@ -254,6 +401,7 @@ export function scrub(
 
       // Engine A: Drop empty objects
       if (
+        pruning.object !== false &&
         cleanedValue !== null &&
         typeof cleanedValue === 'object' &&
         !Array.isArray(cleanedValue) &&
@@ -270,11 +418,18 @@ export function scrub(
     }, {})
 
     const hasKeys = Object.keys(cleanedObj).length > 0
-    return hasKeys ? cleanedObj : undefined
+    if (!hasKeys && key) {
+      if (pruning.object !== false) {
+        if (debugLogs)
+          debugLogs.push(`[Scrubber] Dropping object at "${path}" (Empty after scrubbing)`)
+        return undefined
+      }
+    }
+    return hasKeys || pruning.object === false ? cleanedObj : undefined
   }
 
   const result = walk(input)
-  return result === undefined ? (Array.isArray(input) ? [] : {}) : result
+  return result
 }
 
 /**
@@ -352,14 +507,31 @@ export function formatOutput(
   format: OutputFormat,
   options: { tableifyArrays: boolean; tableifyThreshold: number },
 ): string {
+  if (input === null || input === undefined) return ''
+
   switch (format) {
     case 'xml':
       return formatToXML(input)
     case 'json':
       return formatToJSON(input)
+    case 'yaml':
+      return formatToYAML(input)
     case 'dmd':
     default:
       return formatToDMD(input, options)
+  }
+}
+
+export function formatToYAML(input: unknown): string {
+  try {
+    return yaml.dump(input, {
+      indent: 2,
+      lineWidth: -1, // Don't wrap lines
+      noRefs: true,
+      sortKeys: true,
+    })
+  } catch (e) {
+    return `[YAML Error: ${String(e)}]`
   }
 }
 
@@ -412,7 +584,7 @@ export function formatToDMD(
   input: unknown,
   options: { tableifyArrays: boolean; tableifyThreshold: number },
 ): string {
-  function toMarkdown(node: unknown, indent: number = 0): string {
+  function toMarkdown(node: unknown, indent: number = 0, inline: boolean = false): string {
     const spacing = '  '.repeat(indent)
 
     if (Array.isArray(node)) {
@@ -429,19 +601,29 @@ export function formatToDMD(
         return formatAsTable(node, indent)
       }
 
-      return node.map((item) => `\n${spacing}- ${toMarkdown(item, indent + 1)}`).join('')
+      return node.map((item) => `\n${spacing}- ${toMarkdown(item, indent + 1, true)}`).join('')
     }
 
     if (typeof node === 'object' && node !== null) {
-      return Object.entries(node as Record<string, unknown>)
-        .map(([key, value]) => `\n${spacing}${key}: ${toMarkdown(value, indent + 1)}`)
+      const entries = Object.entries(node as Record<string, unknown>)
+      if (entries.length === 0) {
+        return '{}'
+      }
+      return entries
+        .map(([key, value], idx) => {
+          const isFirstInline = inline && idx === 0
+          const currentPadding = isFirstInline ? '' : spacing
+          const currentNewline = isFirstInline ? '' : '\n'
+          return `${currentNewline}${currentPadding}${key}: ${toMarkdown(value, indent + 1)}`
+        })
         .join('')
     }
 
     return String(node)
   }
 
-  return toMarkdown(input).trim()
+  const output = toMarkdown(input).trim()
+  return output
 }
 
 function isArrayOfSimilarObjects(arr: unknown[]): boolean {
@@ -474,8 +656,7 @@ function formatAsTable(arr: unknown[], indent: number): string {
   )
   const spacing = '  '.repeat(indent)
 
-  const header = `| ${allKeys.join(' | ')} |`
-  const separator = `| ${allKeys.map(() => '---').join(' | ')} |`
+  const header = allKeys.join(' | ')
   const rows = arr.map((item) => {
     const itemRecord = item as Record<string, unknown>
     const values = allKeys.map((k) => {
@@ -486,8 +667,8 @@ function formatAsTable(arr: unknown[], indent: number): string {
       const strVal = typeof val === 'object' ? JSON.stringify(val) : String(val)
       return strVal.replace(/\|/g, '\\|')
     })
-    return `| ${values.join(' | ')} |`
+    return values.join(' | ')
   })
 
-  return `\n${spacing}${header}\n${spacing}${separator}\n${spacing}${rows.join(`\n${spacing}`)}`
+  return `\n${spacing}${header}\n${spacing}${rows.join(`\n${spacing}`)}`
 }

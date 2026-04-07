@@ -20,7 +20,7 @@ Straw acts as a **Semantic ETL** between your API and your Prompt. It prunes, al
 
 - **Input Guard**: Automatically categorizes data (Structured vs. Unstructured) and performs **Semantic Line Deduplication** for verbose logs.
 - **Deterministic Scrubber**: Recursive removal of `null`, `undefined`, and high-token noise keys via **Wildcard Support** (e.g., `*_id`).
-- **IdAliaser**: Replaces 36-char UUIDs and 40-char SHAs with short tokens (`$ID_0`) and provides a `reverseMap` for programmatic write-backs.
+- **Aliaser**: Replaces 36-char UUIDs and 40-char SHAs with short tokens (`$ID_0`) and provides a `reverseMap` for programmatic write-backs.
 - **Table-Sense**: detect arrays of similar objects and format them as Markdown tables, even with partial key overlap.
 - **DMD Formatter**: Converts objects into **Dense Markdown Data**—a structural indentation format that LLMs natively understand better than JSON.
 - **Isomorphic**: Runs anywhere—Node.js, Edge, Bun, or the Browser.

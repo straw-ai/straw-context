@@ -6,36 +6,30 @@ export interface ScrubberOptions {
   dropKeys?: string[]
   /**
    * Keys or dot-notation paths to protect from truncation or dropping.
-   * Punches a hole through DEFAULT_NOISE_KEYS.
+   * Punches a hole through the modular blocklist.
    */
   preserveKeys?: string[]
   /**
    * Operating mode for the scrubber.
-   * 'blocklist': Drop elements explicitly listed in dropKeys/DEFAULT_NOISE.
+   * 'blocklist': Drop elements explicitly listed in dropKeys/blocklist.
    * 'allowlist': Drop EVERYTHING unless it matches a preserveKey.
    * @default 'blocklist'
    */
   mode?: 'blocklist' | 'allowlist'
   /**
-   * @deprecated Use `useSystemBlocklist` instead.
+   * Composable arrays of noisy keys to drop.
+   * Example: [genericBlocklist, githubBlocklist]
    */
-  useDefaultBlacklist?: boolean
+  blocklist?: string[][]
   /**
-   * If true, uses the built-in "System Default Policy" to drop noisy keys.
-   * Only applicable when `mode` is 'blocklist'.
-   * @default true
+   * Configuration for how the scrubber handles empty or null primitives.
    */
-  useSystemBlocklist?: boolean
+  pruning?: PruningOptions
   /**
-   * If true, drops null, undefined, or empty string values.
-   * @default true
+   * If true or provided with options, enables PII/PHI redaction.
+   * Default: false
    */
-  pruneEmptyValues?: boolean
-  /**
-   * If true, drops arrays that contain no elements after scrubbing.
-   * @default false
-   */
-  pruneEmptyArrays?: boolean
+  redactPII?: boolean | RedactOptions
 }
 
 export interface DedupeOptions {
@@ -67,6 +61,24 @@ export interface RedactOptions {
   onRedact?: (type: string, match: string, path: string) => void
 }
 
+/**
+ * Configuration for how the scrubber handles empty or null primitives.
+ */
+export interface PruningOptions {
+  /** If true, drops null values. @default true */
+  null?: boolean
+  /** If true, drops undefined values. @default true */
+  undefined?: boolean
+  /** If true, drops empty strings (""). @default true */
+  emptyString?: boolean
+  /** If true, drops arrays that contain no elements after scrubbing. @default false */
+  array?: boolean
+  /** If true, drops objects that contain no properties after scrubbing. @default true */
+  object?: boolean
+  /** Alternative representation for nulls (e.g. "NULL", "∅"). If set, nulls are REPLACED, not dropped. */
+  nullReplacement?: string
+}
+
 export interface BudgetOptions {
   /** The strict token limit for the distilled output. */
   maxContextTokens: number
@@ -81,16 +93,57 @@ export interface BudgetOptions {
   lowPriorityKeys?: string[]
   /** Keys or paths that MUST never be dropped during budgeting. */
   essentialKeys?: string[]
+  /**
+   * If true, allows the Budgeter to dynamically shrink string lengths
+   * to fit the budget before dropping nodes.
+   * @default false
+   */
+  allowDynamicTruncation?: boolean
 }
 
 export type LLMProvider = 'openai' | 'anthropic' | 'gemini' | 'meta' | 'generic'
-export type OutputFormat = 'dmd' | 'xml' | 'json'
+export type OutputFormat = 'dmd' | 'xml' | 'json' | 'yaml'
 
 /**
  * Custom middleware escape hatch.
  * Return true to KEEP, false to DROP, or undefined to use default engine logic.
  */
 export type FilterNodeCallback = (key: string, value: any, path: string) => boolean | undefined
+
+export interface FilterRule {
+  /** Regex to match against the key name */
+  key?: RegExp
+  /** Regex to match against the full dot-notation path */
+  path?: RegExp
+  /** Whether to keep or drop the matching node */
+  action: 'drop' | 'keep'
+}
+
+/**
+ * Core Rule for the Aliaser Engine.
+ * Replaces high-entropy strings (IDs, Hashes) with short, stable tokens.
+ */
+export interface AliaserRule {
+  /** Descriptive name of the aliaser (e.g. 'uuid') */
+  readonly name: string
+  /** The pattern to find in strings */
+  readonly pattern: RegExp
+  /** The prefix for generated tokens (e.g. 'UUID' becomes $UUID_0) */
+  readonly prefix: string
+}
+
+/**
+ * Core Rule for the PII Redactor Engine.
+ * Replaces sensitive data (Email, CC, etc.) with stable tokens wrapped in <>.
+ */
+export interface RedactorRule {
+  /** Descriptive name of the redactor (e.g. 'email') */
+  readonly name: string
+  /** The pattern to find in strings */
+  readonly pattern: RegExp
+  /** The prefix for generated tokens (e.g. 'EMAIL' becomes <EMAIL_0>) */
+  readonly prefix: string
+}
 
 export interface DistillOptions extends ScrubberOptions {
   /**
@@ -100,7 +153,10 @@ export interface DistillOptions extends ScrubberOptions {
   preset?: string | string[]
   /** Hard cap on string values. Disabled by default. */
   maxStringLength?: number
-  /** Strategy for string truncation when maxStringLength is exceeded. @default 'middle' */
+  /**
+   * Strategy for string truncation when maxStringLength is exceeded.
+   * @default 'end'
+   */
   stringTruncationStrategy?: 'middle' | 'end' | 'start'
   /** Convert arrays of similar objects to Markdown tables. @default false */
   tableifyArrays?: boolean
@@ -114,8 +170,17 @@ export interface DistillOptions extends ScrubberOptions {
   enableInputGuard?: boolean
   /** Configuration for Semantic Line Deduplication */
   dedupe?: DedupeOptions
-  /** Anchor date for relative time calculations (useful for testing). @default new Date() */
+  /**
+   * Anchor date for relative time calculations (useful for testing).
+   * @default new Date()
+   */
   dateAnchor?: Date
+  /**
+   * Maximum depth for recursive object traversal.
+   * Prevents stack overflows on extremely deep objects.
+   * @default 50
+   */
+  maxDepth?: number
   /** Custom middleware to run on every node before default engines. */
   filterNode?: FilterNodeCallback
   /** Options for PII and PHI redaction. Omit to disable. */
@@ -127,6 +192,12 @@ export interface DistillOptions extends ScrubberOptions {
   tokenCounter?: (text: string) => number
   /** Budgeting configuration to fit strict context windows. */
   budget?: BudgetOptions
+  /** Array of custom regex rules to filter nodes by key or path. */
+  filters?: FilterRule[]
+  /** Array of programmatic rules to alias IDs, SHAs, or custom patterns. */
+  aliaser?: AliaserRule[]
+  /** Array of programmatic rules to redact PII (e.g. email, phone). */
+  redactors?: RedactorRule[]
   /** Target LLM provider to apply optimal formatting defaults. */
   targetProvider?: LLMProvider
   /** Override the default formatting strategy. @default 'dmd' */
@@ -136,21 +207,33 @@ export interface DistillOptions extends ScrubberOptions {
 }
 
 export interface DistillResult {
-  /** The final DMD payload for the LLM */
+  /** The final distilled payload for the LLM */
   contextString: string
-  /** Mapping of $ID_X back to original UUIDs */
+  /** Mapping of $ID_X back to original UUIDs/SHAs */
   reverseMap: Map<string, string>
-  /** Conservative heuristic estimate of token reduction */
+  /** Size of the original input string in bytes */
+  originalSizeBytes: number
+  /** Size of the final distilled string in bytes */
+  distilledSizeBytes: number
+  /** Comparative statistics regarding token reduction */
   stats: {
-    /** Estimated token count of the original input */
-    originalTokens: number
-    /** Estimated token count of the distilled output */
+    /** Tokens of the 2-space indented JSON baseline (The User's Truth) */
+    baselineTokens: number
+    /** Tokens of the minified JSON baseline (The Technical Floor) */
+    minifiedTokens: number
+    /** Final tokens of the distilled Straw output (The New Reality) */
     distilledTokens: number
-    /** Ratio of reduction (0.0 to 1.0). */
-    reductionRatio: number
+    /** Absolute number of tokens saved compared to baselineTokens */
+    tokensSaved: number
+    /** Reduction against the pretty baseline (Headline %). e.g. 62.1 */
+    reductionPercent: number
+    /** Reduction against the minified baseline (Efficiency Gain %). e.g. 46.3 */
+    efficiencyGain: number
     /** Total processing time in milliseconds */
     durationMs: number
   }
+  /** Detailed tracing logs produced when `debug: true` */
+  debugLogs?: string[]
   /** Diagnostic warnings or telemetry about the distillation process */
   warnings?: string[]
 }
