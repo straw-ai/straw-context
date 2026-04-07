@@ -228,11 +228,14 @@ export function distill(input: unknown, options: DistillOptions = {}): DistillRe
         const minifiedTokens = counter(textInput)
         const distilledTokens = counter(processed as string)
 
+        const originalSizeBytes = new TextEncoder().encode(textInput).length
+        const distilledSizeBytes = new TextEncoder().encode(processed as string).length
+
         return {
           contextString: processed as string,
           reverseMap: new Map(),
-          originalSizeBytes: Buffer.from(textInput).length,
-          distilledSizeBytes: Buffer.from(processed as string).length,
+          originalSizeBytes,
+          distilledSizeBytes,
           stats: {
             baselineTokens,
             minifiedTokens,
@@ -321,8 +324,8 @@ export function distill(input: unknown, options: DistillOptions = {}): DistillRe
   return {
     contextString,
     reverseMap,
-    originalSizeBytes: Buffer.from(prettyJson).length,
-    distilledSizeBytes: Buffer.from(contextString).length,
+    originalSizeBytes: new TextEncoder().encode(prettyJson).length,
+    distilledSizeBytes: new TextEncoder().encode(contextString).length,
     stats: {
       baselineTokens,
       minifiedTokens,
