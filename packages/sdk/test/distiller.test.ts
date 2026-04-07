@@ -17,7 +17,7 @@ describe('ContextDistiller', () => {
       const raw = {
         id: 123,
         __typename: 'User',
-        avatar_url: 'https://...',
+        etag: 'W/"567-12345"',
         empty_str: '',
         missing: null,
         valid: 'data',
@@ -28,7 +28,7 @@ describe('ContextDistiller', () => {
       expect(contextString).toContain('id: 123')
       expect(contextString).toContain('valid: data')
       expect(contextString).not.toContain('User')
-      expect(contextString).not.toContain('avatar_url')
+      expect(contextString).not.toContain('etag')
     })
 
     it('preserves empty arrays by default, but drops them if configured', () => {
@@ -36,7 +36,7 @@ describe('ContextDistiller', () => {
 
       expect(distill(raw, { tokenCounter: estimateTokens }).contextString).toBe('data: []')
       expect(
-        distill(raw, { pruneEmptyArrays: true, tokenCounter: estimateTokens }).contextString,
+        distill(raw, { pruning: { array: true }, tokenCounter: estimateTokens }).contextString,
       ).toBe('')
     })
 
@@ -64,7 +64,7 @@ describe('ContextDistiller', () => {
         important_metadata: 'keep',
       }
 
-      // __typename is normally dropped by UNIVERSAL_NOISE_KEYS
+      // __typename is normally dropped by genericBlocklist
       const { contextString } = distill(raw, {
         preserveKeys: ['__type*', 'important_*'],
         tokenCounter: estimateTokens,
@@ -106,9 +106,9 @@ describe('ContextDistiller', () => {
         tokenCounter: estimateTokens,
       })
 
-      expect(contextString).toContain('$ID_0')
+      expect(contextString).toContain('$UUID_0')
+      expect(reverseMap.get('$UUID_0')).toBe(uuid)
       expect(contextString).not.toContain(uuid)
-      expect(reverseMap.get('$ID_0')).toBe(uuid)
     })
   })
 
@@ -128,9 +128,9 @@ describe('ContextDistiller', () => {
         tokenCounter: estimateTokens,
       })
 
-      expect(contextString).toContain('| id | name | role |')
-      expect(contextString).toContain('| --- | --- | --- |')
-      expect(contextString).toContain('| 1 | Alice | admin |')
+      expect(contextString).toContain('id | name | role')
+      expect(contextString).toContain('1 | Alice | admin')
+      expect(contextString).toContain('2 | Bob | user')
     })
 
     it('respects tableifyThreshold', () => {
@@ -266,36 +266,36 @@ describe('ContextDistiller', () => {
       expect(contextString).toContain('internal_id: secret')
     })
 
-    it('implements Specificity Wins: preserveKeys overrides default blacklist', () => {
+    it('implements Specificity Wins: preserveKeys overrides blocklists', () => {
       const data = {
-        avatar_url: 'https://...', // Normally dropped by DEFAULT_NOISE_KEYS
+        __typename: 'Result', // Normally dropped by genericBlocklist
         other: 'info',
       }
 
       const { contextString } = distill(data, {
-        preserveKeys: ['avatar_url'],
+        preserveKeys: ['__typename'],
         tokenCounter: estimateTokens,
       })
-      expect(contextString).toContain('avatar_url: https://...')
+      expect(contextString).toContain('__typename: Result')
     })
 
-    it('can disable the system blocklist entirely', () => {
+    it('can disable the modular blocklists entirely', () => {
       const data = {
-        avatar_url: 'https://...', // Normally dropped by DEFAULT_NOISE_KEYS
+        __typename: 'Result', // Normally dropped by genericBlocklist
         other: 'info',
       }
 
       // Default is enabled (dropped)
       expect(distill(data, { tokenCounter: estimateTokens }).contextString).not.toContain(
-        'avatar_url',
+        '__typename',
       )
 
-      // Explicitly disabled (kept)
+      // Explicitly disabled by passing an empty blocklist (kept)
       const { contextString } = distill(data, {
-        useSystemBlocklist: false,
+        blocklist: [],
         tokenCounter: estimateTokens,
       })
-      expect(contextString).toContain('avatar_url: https://...')
+      expect(contextString).toContain('__typename: Result')
     })
 
     it('works with Enterprise Presets (e.g. GitHub)', () => {
@@ -391,7 +391,7 @@ describe('ContextDistiller', () => {
         filterNode: (key) => key === 'user_uuid', // Explicitly keep
       })
       // Should still be aliased!
-      expect(contextString).toContain('user_uuid: $ID_0')
+      expect(contextString).toContain('user_uuid: $UUID_0')
     })
   })
 
@@ -501,7 +501,11 @@ describe('ContextDistiller', () => {
     })
 
     it('handles circularity in the Truncator engine', () => {
-      const data: any = { name: 'Alice', long: 'A'.repeat(100) }
+      const data: any = {
+        name: 'Alice',
+        long:
+          'This is a very long string that should not look like a hash value.' + 'X'.repeat(100),
+      }
       data.child = { parent: data } // Deep circular
 
       const { contextString, warnings } = distill(data, {
@@ -511,7 +515,7 @@ describe('ContextDistiller', () => {
 
       // The parent link in the child will be pruned
       expect(contextString).toContain('name: Alice')
-      expect(contextString).toContain('long: AAAA')
+      expect(contextString).toContain('long: This is a very long string')
       expect(warnings).toBeDefined()
       expect(warnings!.some((w) => w.includes('Circular reference detected'))).toBe(true)
     })

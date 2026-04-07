@@ -19,7 +19,7 @@ describe('Enterprise: Multi-LLM Output Optimization', () => {
       tokenCounter: estimateTokens,
     })
     expect(contextString).toContain('user:')
-    expect(contextString).toContain('id: $ID_0')
+    expect(contextString).toContain('id: $UUID_0')
     expect(contextString).not.toContain('<context>')
   })
 
@@ -31,7 +31,7 @@ describe('Enterprise: Multi-LLM Output Optimization', () => {
     })
     expect(contextString).toContain('<context>')
     expect(contextString).toContain('<user>')
-    expect(contextString).toContain('<id>$ID_0</id>')
+    expect(contextString).toContain('<id>$UUID_0</id>')
     expect(contextString).toContain('<item>admin</item>')
     expect(contextString).toContain('Alice &lt;Script&gt;') // Escaped XML
   })
@@ -44,7 +44,7 @@ describe('Enterprise: Multi-LLM Output Optimization', () => {
     })
     // Should be a valid JSON string
     const parsed = JSON.parse(contextString)
-    expect(parsed.user.id).toBe('$ID_0')
+    expect(parsed.user.id).toBe('$UUID_0')
   })
 
   it('allows explicit XML override on non-anthropic provider', () => {
@@ -59,6 +59,6 @@ describe('Enterprise: Multi-LLM Output Optimization', () => {
   it('handles empty data in XML gracefully', () => {
     // When everything is pruned by the default scrubber, we get an empty context.
     const { contextString } = distill({}, { outputFormat: 'xml', tokenCounter: estimateTokens })
-    expect(contextString).toBe('<context></context>')
+    expect(contextString).toBe('')
   })
 })

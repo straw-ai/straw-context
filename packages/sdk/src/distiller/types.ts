@@ -6,7 +6,7 @@ export interface ScrubberOptions {
   dropKeys?: string[]
   /**
    * Keys or dot-notation paths to protect from truncation or dropping.
-   * Punches a hole through DEFAULT_NOISE_KEYS.
+   * Punches a hole through the modular blocklist.
    */
   preserveKeys?: string[]
   /**

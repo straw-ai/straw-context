@@ -15,7 +15,14 @@ describe('Engine B: String Truncation Strategies', () => {
   })
 
   it('uses middle-out truncation when explicitly enabled', () => {
-    const res = distill({ text: alphabet }, { maxStringLength: 20, tokenCounter: estimateTokens })
+    const res = distill(
+      { text: alphabet },
+      {
+        maxStringLength: 20,
+        stringTruncationStrategy: 'middle',
+        tokenCounter: estimateTokens,
+      },
+    )
     // Middle keeps first 8 (0.4 * 20) and last 8
     expect(res.contextString).toContain('ABCDEFGH')
     expect(res.contextString).toContain('3456789')

@@ -261,18 +261,24 @@ export function distill(input: unknown, options: DistillOptions = {}): DistillRe
   const defaults = getOutputDefaults(activeOptions.targetProvider)
   const format = activeOptions.outputFormat ?? defaults.outputFormat
 
-  const prettyJson = JSON.stringify(processed, null, 2)
-  const minifiedJson = JSON.stringify(processed)
+  let baselineTokens = 0
+  let minifiedTokens = 0
+  let prettyJson = ''
 
-  const baselineTokens = counter(prettyJson)
-  const minifiedTokens = counter(minifiedJson)
+  try {
+    prettyJson = JSON.stringify(processed, null, 2)
+    const minifiedJson = JSON.stringify(processed)
+    baselineTokens = counter(prettyJson)
+    minifiedTokens = counter(minifiedJson)
+  } catch {
+    // If original payload is circular or contains BigInt, we skip baseline tokens for now
+  }
 
   const warnings: string[] = []
 
   // 4. Unified Distillation Pass (Scrub + Date + Alias + PII)
-  // DMD Format defaults to aggressive reduction features (opt-out)
   const isDMD = format === 'dmd'
-  processed = scrub(
+  const scrubbed = scrub(
     processed,
     {
       ...activeOptions,
@@ -286,6 +292,16 @@ export function distill(input: unknown, options: DistillOptions = {}): DistillRe
     warnings,
     debugLogs,
   )
+
+  // If we couldn't calculate baseline because of circularity, we use the scrubbed version as a fallback floor
+  if (baselineTokens === 0) {
+    prettyJson = JSON.stringify(scrubbed, null, 2)
+    const minifiedJson = JSON.stringify(scrubbed)
+    baselineTokens = counter(prettyJson)
+    minifiedTokens = counter(minifiedJson)
+  }
+
+  processed = scrubbed
 
   // 5. Truncator (Engine B) - Applied recursively to strings
   const { maxStringLength: maxLen, stringTruncationStrategy: strategy = 'end' } = activeOptions

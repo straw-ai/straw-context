@@ -194,8 +194,24 @@ export function scrub(
   let activeRedactors: RedactorRule[] = []
   if (options.redactors && options.redactors.length > 0) {
     activeRedactors = options.redactors
-  } else if (options.redactPII) {
-    activeRedactors = defaultRedactors
+  } else if (redactPII) {
+    const isObj = typeof redactPII === 'object'
+    const custom = isObj ? redactPII.customRules : []
+    const types = isObj ? redactPII.types : undefined
+
+    const customRules: RedactorRule[] = (custom || []).map((c, i) => {
+      const cleanPrefix = c.replacement.replace(/[<>]/g, '')
+      return {
+        name: `custom-${i}`,
+        pattern: c.pattern,
+        prefix: cleanPrefix,
+      }
+    })
+
+    activeRedactors = [...defaultRedactors, ...customRules]
+    if (types && types.length > 0) {
+      activeRedactors = activeRedactors.filter((r) => types.includes(r.name as any))
+    }
   }
 
   const aliaserCounters = new Map<string, number>()
@@ -413,7 +429,7 @@ export function scrub(
   }
 
   const result = walk(input)
-  return result === undefined ? (Array.isArray(input) ? [] : {}) : result
+  return result
 }
 
 /**
@@ -491,6 +507,8 @@ export function formatOutput(
   format: OutputFormat,
   options: { tableifyArrays: boolean; tableifyThreshold: number },
 ): string {
+  if (input === null || input === undefined) return ''
+
   switch (format) {
     case 'xml':
       return formatToXML(input)
@@ -604,7 +622,8 @@ export function formatToDMD(
     return String(node)
   }
 
-  return toMarkdown(input).trim()
+  const output = toMarkdown(input).trim()
+  return output
 }
 
 function isArrayOfSimilarObjects(arr: unknown[]): boolean {

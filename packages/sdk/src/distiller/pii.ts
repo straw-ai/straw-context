@@ -26,10 +26,10 @@ export const apiKeyRedactor: RedactorRule = {
 } as const
 
 export const defaultRedactors: RedactorRule[] = [
+  apiKeyRedactor,
   emailRedactor,
   phoneRedactor,
   creditCardRedactor,
-  apiKeyRedactor,
 ]
 
 /**

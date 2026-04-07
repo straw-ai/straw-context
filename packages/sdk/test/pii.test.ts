@@ -91,7 +91,7 @@ describe('Engine F: PII/PHI Redaction', () => {
       tokenCounter: estimateTokens,
     })
 
-    expect(capturedType).toBe('EMAIL')
+    expect(capturedType).toBe('email')
     expect(capturedMatch).toBe('audit@test.com')
     expect(capturedPath).toBe('user.email')
   })

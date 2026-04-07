@@ -164,7 +164,10 @@ export class Budgeter {
     const safeCharsPerToken = Math.max(1, initialFormatWithTables.length / Math.max(1, exactTokens))
     const requiredCuts = Math.max(
       1,
-      deficitTokens * safeCharsPerToken * tableCompressionRatio * 1.05,
+      deficitTokens *
+        safeCharsPerToken *
+        tableCompressionRatio *
+        (tableCompressionRatio > 1.05 ? 1.2 : 1.1),
     )
     let charsCut = 0
     let nodesDropped = 0

@@ -30,22 +30,21 @@ describe('Public API Surface', () => {
     expect(result).toHaveProperty('contextString')
     expect(result).toHaveProperty('reverseMap')
     expect(result).toHaveProperty('stats')
-    expect(result.stats).toHaveProperty('originalTokens')
+    expect(result.stats).toHaveProperty('baselineTokens')
     expect(result.stats).toHaveProperty('distilledTokens')
-    expect(result.stats).toHaveProperty('reductionRatio')
+    expect(result.stats).toHaveProperty('reductionPercent')
     expect(result.stats).toHaveProperty('durationMs')
   })
 
-  it('stats.reductionPercent is between 0 and 1 for reducible payloads', () => {
+  it('stats.reductionPercent is between 0 and 100 for reducible payloads', () => {
     const data = {
       id: '550e8400-e29b-41d4-a716-446655440000',
-      __typename: 'Noise',
-      avatar_url: 'https://...',
+      __typename: 'Result', // Dropped by genericBlocklist
       value: 'important',
     }
     const { stats } = distill(data, { tokenCounter: estimateTokens })
-    expect(stats.reductionRatio).toBeGreaterThan(0)
-    expect(stats.reductionRatio).toBeLessThanOrEqual(1)
+    expect(stats.reductionPercent).toBeGreaterThan(0)
+    expect(stats.reductionPercent).toBeLessThanOrEqual(100)
   })
 
   it('stats.durationMs is a non-negative number', () => {
@@ -55,10 +54,7 @@ describe('Public API Surface', () => {
 
   it('stats.distilledTokens is 0 for fully pruned payloads', () => {
     // Everything gets scrubbed as noise
-    const { stats } = distill(
-      { __typename: 'Noise', avatar_url: 'https://...' },
-      { tokenCounter: estimateTokens },
-    )
+    const { stats } = distill({ __typename: 'Result' }, { tokenCounter: estimateTokens })
     expect(stats.distilledTokens).toBe(0)
   })
 
