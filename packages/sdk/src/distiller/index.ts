@@ -11,7 +11,10 @@ import {
 } from './types.js'
 
 export * from './types.js'
-export { presets }
+export { presets } from './presets.js'
+export { uuidAliaser, shaAliaser } from './engines.js'
+export { emailRedactor, phoneRedactor, creditCardRedactor, apiKeyRedactor } from './pii.js'
+export { genericBlocklist, githubBlocklist } from './constants.js'
 function recursiveTruncate(
   node: unknown,
   maxLen: number,
@@ -19,9 +22,28 @@ function recursiveTruncate(
   visited = new WeakSet(),
   path = '',
   warnings?: string[],
+  depth = 0,
+  maxDepth = 50,
+  debugLogs?: string[],
 ): unknown {
+  if (depth > maxDepth) {
+    if (warnings) {
+      warnings.push(
+        `Max depth of ${maxDepth} reached in Truncator at path: "${path || '(root)'}". Node pruned.`,
+      )
+    }
+    if (debugLogs)
+      debugLogs.push(`[Truncator] Pruning node at "${path}" (Max depth ${maxDepth} reached)`)
+    return undefined
+  }
   if (typeof node === 'string') {
-    return truncate(node, maxLen, strategy)
+    const truncated = truncate(node, maxLen, strategy)
+    if (debugLogs && truncated !== node) {
+      debugLogs.push(
+        `[Truncator] Truncated string at "${path}" (${node.length} -> ${truncated.length})`,
+      )
+    }
+    return truncated
   }
 
   if (Array.isArray(node)) {
@@ -36,7 +58,17 @@ function recursiveTruncate(
     visited.add(node)
     return node
       .map((item, idx) =>
-        recursiveTruncate(item, maxLen, strategy, visited, `${path}[${idx}]`, warnings),
+        recursiveTruncate(
+          item,
+          maxLen,
+          strategy,
+          visited,
+          `${path}[${idx}]`,
+          warnings,
+          depth + 1,
+          maxDepth,
+          debugLogs,
+        ),
       )
       .filter((v) => v !== undefined)
   }
@@ -55,7 +87,17 @@ function recursiveTruncate(
     // Replaced `for...of` with `Object.entries().reduce()` to comply with Airbnb standards
     return Object.entries(node).reduce<Record<string, unknown>>((acc, [key, value]) => {
       const subPath = path ? `${path}.${key}` : key
-      const cleaned = recursiveTruncate(value, maxLen, strategy, visited, subPath, warnings)
+      const cleaned = recursiveTruncate(
+        value,
+        maxLen,
+        strategy,
+        visited,
+        subPath,
+        warnings,
+        depth + 1,
+        maxDepth,
+        debugLogs,
+      )
       if (cleaned !== undefined) {
         acc[key] = cleaned
       }
@@ -146,6 +188,7 @@ export function distill(input: unknown, options: DistillOptions = {}): DistillRe
 
   const start = Date.now()
   const reverseMap = new Map<string, string>()
+  const debugLogs: string[] | undefined = activeOptions.debug ? [] : undefined
 
   let processed: unknown = input
 
@@ -188,10 +231,13 @@ export function distill(input: unknown, options: DistillOptions = {}): DistillRe
         return {
           contextString: processed as string,
           reverseMap: new Map(),
+          originalSizeBytes: Buffer.from(textInput).length,
+          distilledSizeBytes: Buffer.from(processed as string).length,
           stats: {
             baselineTokens,
             minifiedTokens,
             distilledTokens,
+            tokensSaved: baselineTokens - distilledTokens,
             reductionPercent:
               baselineTokens > 0
                 ? Number(((1 - distilledTokens / baselineTokens) * 100).toFixed(1))
@@ -202,6 +248,7 @@ export function distill(input: unknown, options: DistillOptions = {}): DistillRe
                 : 0,
             durationMs: Date.now() - start,
           },
+          ...(debugLogs ? { debugLogs } : {}),
         }
       }
     }
@@ -234,12 +281,23 @@ export function distill(input: unknown, options: DistillOptions = {}): DistillRe
     reverseMap,
     activeOptions.redactPII,
     warnings,
+    debugLogs,
   )
 
   // 5. Truncator (Engine B) - Applied recursively to strings
   const { maxStringLength: maxLen, stringTruncationStrategy: strategy = 'end' } = activeOptions
   if (maxLen !== undefined && maxLen > 0) {
-    processed = recursiveTruncate(processed, maxLen, strategy, new WeakSet(), '', warnings)
+    processed = recursiveTruncate(
+      processed,
+      maxLen,
+      strategy,
+      new WeakSet(),
+      '',
+      warnings,
+      0,
+      activeOptions.maxDepth ?? 50,
+      debugLogs,
+    )
   }
 
   // 6. Budgeting Pass
@@ -263,16 +321,20 @@ export function distill(input: unknown, options: DistillOptions = {}): DistillRe
   return {
     contextString,
     reverseMap,
+    originalSizeBytes: Buffer.from(prettyJson).length,
+    distilledSizeBytes: Buffer.from(contextString).length,
     stats: {
       baselineTokens,
       minifiedTokens,
       distilledTokens,
+      tokensSaved: baselineTokens - distilledTokens,
       reductionPercent:
         baselineTokens > 0 ? Number(((1 - distilledTokens / baselineTokens) * 100).toFixed(1)) : 0,
       efficiencyGain:
         minifiedTokens > 0 ? Number(((1 - distilledTokens / minifiedTokens) * 100).toFixed(1)) : 0,
       durationMs: Date.now() - start,
     },
+    ...(debugLogs && debugLogs.length > 0 ? { debugLogs } : {}),
     ...(warnings && warnings.length > 0 ? { warnings } : {}),
   }
 }
