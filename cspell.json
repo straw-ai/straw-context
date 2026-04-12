@@ -29,7 +29,11 @@
     "baprs",
     "pousr",
     "apos",
-    "tableification"
+    "tableification",
+    "TOON",
+    "Logprob",
+    "Logprobs",
+    "Ollama"
   ],
   "ignorePaths": [
     "node_modules",

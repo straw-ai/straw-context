@@ -29,6 +29,8 @@ describe('ContextDistiller Demo', () => {
       ],
     }
 
+    console.log(input)
+
     const result = distill(input, {
       tokenCounter: estimateTokens,
       maxStringLength: 100,

@@ -1,20 +1,11 @@
 import yaml from 'js-yaml'
 
-import { genericBlocklist } from './constants.js'
-import { redactString, defaultRedactors } from './pii.js'
-import {
-  type ScrubberOptions,
-  type FilterNodeCallback,
-  type OutputFormat,
-  type RedactOptions,
-  type FilterRule,
-  type AliaserRule,
-  type RedactorRule,
-} from './types.js'
+import { type OutputFormat, type AliaserRule, type DistillOptions } from './types.js'
 
 /**
- * --- Engine A: The Heuristic Scrubber ---
- * Unified pipeline for scrubbing, aliasing, and date formatting.
+ * --- Engine A: The Minifier ---
+ * Specialized Node walker for pruning, aliasing, and formatting.
+ * Higher-fidelity than a generic compressor, but zero-trust (no structural filtering).
  */
 
 export const uuidAliaser: AliaserRule = {
@@ -29,289 +20,66 @@ export const shaAliaser: AliaserRule = {
   prefix: 'SHA',
 } as const
 
-const ISO_DATE_REGEX = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}(:?\d{2})?)$/
-
-// Hoisted Intl.RelativeTimeFormat for significant performance gains
-const RELATIVE_TIME_FORMATTER = new Intl.RelativeTimeFormat('en', {
-  numeric: 'always',
-  style: 'long',
-})
-
-function globToRegex(pattern: string): RegExp {
-  // 1. Escape all regex special characters EXCEPT '*'
-  const escaped = pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&')
-  // 2. Convert '*' to '.*'
-  const regexStr = escaped.replace(/\*/g, '.*')
-  return new RegExp(`^${regexStr}$`)
-}
-
 /**
- * Unified scrubber implementation.
+ * Unified node minification pass (Lossless).
  */
-export function scrub(
+export function minifyNode(
   input: unknown,
-  options: ScrubberOptions & {
-    relativeDates?: boolean
-    aliasIds?: boolean
-    dateAnchor?: Date
-    maxDepth?: number
-    filterNode?: FilterNodeCallback
-    filters?: FilterRule[]
-    aliaser?: AliaserRule[]
-    redactors?: RedactorRule[]
-    debug?: boolean
-  },
+  options: DistillOptions,
   reverseMap: Map<string, string>,
-  redactPII?: RedactOptions,
   warnings?: string[],
   debugLogs?: string[],
 ): unknown {
-  const mode = options.mode ?? 'blocklist'
-  const allPreserveKeys = options.preserveKeys || []
-
-  // Combine blocklist if in blocklist mode
-  const activeBlocklist = options.blocklist ?? [genericBlocklist]
-  const flattenedNoise = mode === 'blocklist' ? activeBlocklist.flat() : []
-  const allDropKeys = [...(options.dropKeys || []), ...flattenedNoise]
-
-  const pruning = options.pruning ?? {
-    null: true,
-    undefined: true,
-    emptyString: true,
-    object: true,
+  const norm = options.normalization ?? {
+    nullPlaceholder: '∅',
+    undefinedPlaceholder: '∅',
+    normalizeEmptyStrings: false,
   }
   const maxDepth = options.maxDepth ?? 50
-
-  const dropPatterns = allDropKeys.filter((k: string) => k.includes('*')).map(globToRegex)
-  const dropLiterals = new Set<string>(allDropKeys.filter((k: string) => !k.includes('*')))
-
-  const preservePatterns = allPreserveKeys.filter((k: string) => k.includes('*')).map(globToRegex)
-  const preserveLiterals = new Set<string>(allPreserveKeys.filter((k: string) => !k.includes('*')))
-
-  const isMatched = (key: string, path: string, literals: Set<string>, patterns: RegExp[]) =>
-    literals.has(key) || literals.has(path) || patterns.some((re) => re.test(key) || re.test(path))
-
-  const parsedPreservePrefixes = allPreserveKeys
-    .filter((k: string) => k.includes('*'))
-    .map((k: string) => k.split('.'))
-  const literalPreserveKeys = allPreserveKeys.filter((k: string) => !k.includes('*'))
-
-  const isPrefixMatch = (pathParts: string[], path: string): boolean => {
-    for (const pk of literalPreserveKeys) {
-      if (pk === path || pk.startsWith(`${path}.`)) {
-        return true
-      }
-    }
-
-    if (parsedPreservePrefixes.length === 0) {
-      return false
-    }
-
-    for (const parts of parsedPreservePrefixes) {
-      if (pathParts.length > parts.length) {
-        continue
-      }
-
-      let matches = true
-      for (let j = 0; j < pathParts.length; j++) {
-        if (parts[j] !== '*' && parts[j] !== pathParts[j]) {
-          matches = false
-          break
-        }
-      }
-      if (matches) {
-        return true
-      }
-    }
-    return false
-  }
-
-  const shouldDrop = (
-    key: string,
-    path: string,
-    pathParts: string[],
-    isAllowedParent: boolean,
-    isExplicitlyKept: boolean,
-  ): boolean => {
-    // 0. Middleware Priority: If the user explicitly returned 'true' via filterNode, we keep it.
-    if (isExplicitlyKept) {
-      return false
-    }
-
-    // 1. If parent was allow-listed, we don't drop anything unless explicitly blocked
-    if (isAllowedParent) {
-      return isMatched(key, path, dropLiterals, dropPatterns)
-    }
-
-    // 1. PRESERVE wins everything (The "Punch-through" rule)
-    if (isMatched(key, path, preserveLiterals, preservePatterns)) {
-      return false
-    }
-
-    // 2. If in allowlist mode, we drop if it's NOT a preserve and NOT a prefix
-    if (mode === 'allowlist') {
-      return !isPrefixMatch(pathParts, path)
-    }
-
-    // 4. Custom Filters (Regex Rules) - Highest User Priority
-    if (options.filters && options.filters.length > 0) {
-      for (const rule of options.filters) {
-        let matched = false
-        if (rule.key && rule.key.test(key)) matched = true
-        if (rule.path && rule.path.test(path)) matched = true
-
-        if (matched) {
-          if (rule.action === 'keep') {
-            if (debugLogs)
-              debugLogs.push(`[Filter] KEEP on "${path}" matched ${String(rule.key || rule.path)}`)
-            return false
-          }
-          if (rule.action === 'drop') {
-            if (debugLogs)
-              debugLogs.push(`[Filter] DROP on "${path}" matched ${String(rule.key || rule.path)}`)
-            return true
-          }
-        }
-      }
-    }
-
-    // 5. User's explicit DROP list (Includes modular blocklist)
-    if (isMatched(key, path, dropLiterals, dropPatterns)) {
-      if (debugLogs) debugLogs.push(`[Scrubber] Dropping blocklist key: "${path}"`)
-      return true
-    }
-
-    return false
-  }
 
   let activeAliaser: AliaserRule[] = []
   if (options.aliaser && options.aliaser.length > 0) {
     activeAliaser = options.aliaser
-  } else if (options.aliasIds !== false) {
+  } else if (options.enableAliasing !== false) {
     activeAliaser = [uuidAliaser, shaAliaser]
   }
 
-  let activeRedactors: RedactorRule[] = []
-  if (options.redactors && options.redactors.length > 0) {
-    activeRedactors = options.redactors
-  } else if (redactPII) {
-    const isObj = typeof redactPII === 'object'
-    const custom = isObj ? redactPII.customRules : []
-    const types = isObj ? redactPII.types : undefined
-
-    const customRules: RedactorRule[] = (custom || []).map((c, i) => {
-      const cleanPrefix = c.replacement.replace(/[<>]/g, '')
-      return {
-        name: `custom-${i}`,
-        pattern: c.pattern,
-        prefix: cleanPrefix,
-      }
-    })
-
-    activeRedactors = [...defaultRedactors, ...customRules]
-    if (types && types.length > 0) {
-      activeRedactors = activeRedactors.filter((r) => types.includes(r.name as any))
-    }
-  }
-
   const aliaserCounters = new Map<string, number>()
-  const piiCounters = new Map<string, number>()
   const forwardMap = new Map<string, string>()
 
-  // THE SINGLE PASS WALKER (Scrub + Date + Alias)
   function walk(
     node: unknown,
     key: string = '',
     path: string = '',
-    pathParts: string[] = [],
     visited = new WeakSet(),
-    isAllowedParent = false,
     depth = 0,
   ): unknown {
-    if (depth > maxDepth) {
-      if (warnings) {
+    // 1. Depth Capping (Lossless Normalization)
+    const isComplex = typeof node === 'object' && node !== null
+    if (depth > maxDepth || (depth === maxDepth && isComplex)) {
+      if (warnings && isComplex) {
         warnings.push(
-          `Max depth of ${maxDepth} reached at path: "${path || '(root)'}". Node pruned.`,
+          `Max depth of ${maxDepth} reached at path: "${path || '(root)'}". Node normalized to ${norm.nullPlaceholder ?? '∅'}.`,
         )
       }
-      return undefined
-    }
-    let isExplicitlyKept = false
-    // 0. Middleware Escape Hatch
-    if (options.filterNode && key) {
-      const decision = options.filterNode(key, node, path)
-      if (decision === true) {
-        if (debugLogs) debugLogs.push(`[Middleware] KEEP forced at "${path}"`)
-        isExplicitlyKept = true
-      } else if (decision === false) {
-        if (debugLogs) debugLogs.push(`[Middleware] DROP forced at "${path}"`)
-        return undefined // EXPLICIT DROP (terminal)
-      }
+      return isComplex ? (norm.nullPlaceholder ?? '∅') : node
     }
 
-    const currentMatched =
-      (key ? isMatched(key, path, preserveLiterals, preservePatterns) : false) || isExplicitlyKept
-    const currentAllowed = isAllowedParent || currentMatched
-
-    // 1. Drop Logic
-    if (key && shouldDrop(key, path, pathParts, isAllowedParent, isExplicitlyKept)) {
-      return undefined
-    }
-
-    // 2. Primitives & Transforms
+    // 2. Primitives & Normalization (Lossless)
     if (node === null) {
-      if (pruning.nullReplacement !== undefined) {
-        if (debugLogs)
-          debugLogs.push(
-            `[Scrubber] Replacing null with glyph: "${pruning.nullReplacement}" at "${path}"`,
-          )
-        return pruning.nullReplacement
-      }
-      if (pruning.null !== false && !currentMatched) {
-        if (debugLogs) debugLogs.push(`[Scrubber] Pruning null at "${path}"`)
-        return undefined
-      }
-      return null
+      return norm.nullPlaceholder ?? '∅'
     }
 
     if (node === undefined) {
-      if (pruning.undefined !== false && !currentMatched) {
-        if (debugLogs) debugLogs.push(`[Scrubber] Pruning undefined at "${path}"`)
-        return undefined
-      }
-      return undefined
+      return norm.undefinedPlaceholder ?? '∅'
     }
 
-    if (node === '') {
-      if (pruning.emptyString !== false && !currentMatched) {
-        if (debugLogs) debugLogs.push(`[Scrubber] Pruning empty string at "${path}"`)
-        return undefined
-      }
-      return ''
+    if (node === '' && norm.normalizeEmptyStrings) {
+      return norm.nullPlaceholder ?? '∅'
     }
 
     if (typeof node === 'string') {
       let finalStr = node
-
-      // Engine F: PII/PHI Redaction (String)
-      if (activeRedactors.length > 0) {
-        const onRedact =
-          typeof options.redactPII === 'object' ? options.redactPII.onRedact : undefined
-        finalStr = redactString(
-          finalStr,
-          activeRedactors,
-          forwardMap,
-          reverseMap,
-          piiCounters,
-          path,
-          onRedact,
-        )
-      }
-
-      // Engine E: Date formatting
-      if (options.relativeDates === true && ISO_DATE_REGEX.test(finalStr)) {
-        finalStr = formatRelativeTime(finalStr, options.dateAnchor)
-      }
 
       // Engine C: Aliasing (Programmatic Rules)
       if (activeAliaser.length > 0) {
@@ -344,160 +112,37 @@ export function scrub(
       return node
     }
 
-    // 3. Objects & Arrays
+    // 2. Circularity Check (Lossless)
     if (visited.has(node)) {
       if (warnings) {
-        warnings.push(`Circular reference detected at path: "${path || '(root)'}". Node pruned.`)
+        warnings.push(
+          `Circular reference detected at path: "${path || '(root)'}". Node normalized to placeholder.`,
+        )
       }
-      if (debugLogs) debugLogs.push(`[Scrubber] Pruning circular reference at "${path}"`)
-      return undefined
+      return norm.nullPlaceholder ?? '∅'
     }
     visited.add(node)
 
+    // 3. Arrays (Lossless)
     if (Array.isArray(node)) {
-      const cleanedArray = node
-        .map((item, idx) => {
-          const strIdx = String(idx)
-          return walk(
-            item,
-            strIdx,
-            path ? `${path}.${idx}` : strIdx,
-            [...pathParts, strIdx],
-            visited,
-            currentAllowed,
-            depth + 1,
-          )
-        })
-        .filter((v) => v !== undefined)
-
-      if (cleanedArray.length === 0) {
-        if (pruning.array) {
-          if (debugLogs)
-            debugLogs.push(`[Scrubber] Dropping array at "${path}" (Empty after scrubbing)`)
-          return undefined
-        }
-        return []
-      }
-      return cleanedArray
+      return node.map((item, idx) =>
+        walk(item, String(idx), path ? `${path}.${idx}` : String(idx), visited, depth + 1),
+      )
     }
 
-    // Process Objects
+    // 4. Objects (Lossless Refactor: Never Drop Keys)
     const nodeRecord = node as Record<string, unknown>
-    const cleanedObj = Object.entries(nodeRecord).reduce<Record<string, unknown>>((acc, [k, v]) => {
+    return Object.entries(nodeRecord).reduce<Record<string, unknown>>((acc, [k, v]) => {
       const subPath = path ? `${path}.${k}` : k
-      const cleanedValue = walk(
-        v,
-        k,
-        subPath,
-        [...pathParts, k],
-        visited,
-        currentAllowed,
-        depth + 1,
-      )
-
-      if (cleanedValue === undefined) {
-        return acc
-      }
-
-      // Engine A: Drop empty objects
-      if (
-        pruning.object !== false &&
-        cleanedValue !== null &&
-        typeof cleanedValue === 'object' &&
-        !Array.isArray(cleanedValue) &&
-        Object.keys(cleanedValue as Record<string, unknown>).length === 0
-      ) {
-        // Unless it is explicitly preserved
-        if (!isMatched(k, subPath, preserveLiterals, preservePatterns)) {
-          return acc
-        }
-      }
-
-      acc[k] = cleanedValue
+      acc[k] = walk(v, k, subPath, visited, depth + 1)
       return acc
     }, {})
-
-    const hasKeys = Object.keys(cleanedObj).length > 0
-    if (!hasKeys && key) {
-      if (pruning.object !== false) {
-        if (debugLogs)
-          debugLogs.push(`[Scrubber] Dropping object at "${path}" (Empty after scrubbing)`)
-        return undefined
-      }
-    }
-    return hasKeys || pruning.object === false ? cleanedObj : undefined
   }
 
-  const result = walk(input)
-  return result
+  return walk(input)
 }
 
-/**
- * Formats an ISO date string into a relative time string (e.g. "2 days ago").
- */
-export function formatRelativeTime(isoString: string, anchor?: Date): string {
-  const date = new Date(isoString)
-  if (Number.isNaN(date.getTime())) {
-    return isoString
-  }
-
-  const now = anchor ?? new Date()
-  const diffInMs = date.getTime() - now.getTime()
-  const absDiff = Math.abs(diffInMs)
-
-  const seconds = Math.round(absDiff / 1000)
-  const minutes = Math.round(seconds / 60)
-  const hours = Math.round(minutes / 60)
-  const days = Math.round(hours / 24)
-  const months = Math.round(days / 30)
-  const years = Math.round(days / 365)
-
-  if (years > 0) return RELATIVE_TIME_FORMATTER.format(Math.sign(diffInMs) * years, 'year')
-  if (months > 0) return RELATIVE_TIME_FORMATTER.format(Math.sign(diffInMs) * months, 'month')
-  if (days > 0) return RELATIVE_TIME_FORMATTER.format(Math.sign(diffInMs) * days, 'day')
-  if (hours > 0) return RELATIVE_TIME_FORMATTER.format(Math.sign(diffInMs) * hours, 'hour')
-  if (minutes > 0) return RELATIVE_TIME_FORMATTER.format(Math.sign(diffInMs) * minutes, 'minute')
-
-  return RELATIVE_TIME_FORMATTER.format(Math.sign(diffInMs) * seconds, 'second')
-}
-
-// --- Engine B: The Middle-Out Truncator ---
-
-export function truncate(
-  text: string,
-  maxLength: number,
-  strategy: 'middle' | 'end' | 'start' = 'middle',
-): string {
-  if (text.length <= maxLength) {
-    return text
-  }
-
-  if (strategy === 'middle') {
-    const keepChars = Math.floor(maxLength * 0.4)
-    const truncatedCount = text.length - keepChars * 2
-    const start = text.slice(0, keepChars)
-    const end = text.slice(-keepChars)
-    return `${start}...[${truncatedCount.toLocaleString()} chars truncated]...${end}`
-  }
-
-  if (strategy === 'end') {
-    const keepChars = Math.floor(maxLength * 0.8)
-    const truncatedCount = text.length - keepChars
-    const start = text.slice(0, keepChars)
-    return `${start}...[${truncatedCount.toLocaleString()} chars truncated at end]`
-  }
-
-  if (strategy === 'start') {
-    const keepChars = Math.floor(maxLength * 0.8)
-    const truncatedCount = text.length - keepChars
-    const end = text.slice(-keepChars)
-    return `[${truncatedCount.toLocaleString()} chars truncated at start]...${end}`
-  }
-
-  return text
-}
-
-// --- Engine D: DMD (Dense Markdown Data) Formatter ---
+// --- Engine D: DMD (Dense Markdown Data) & TOON (Table Oriented Object Notation) ---
 
 /**
  * Universal Formatter Orchestrator
@@ -516,10 +161,137 @@ export function formatOutput(
       return formatToJSON(input)
     case 'yaml':
       return formatToYAML(input)
+    case 'toon':
+      return formatToTOON(input)
     case 'dmd':
     default:
       return formatToDMD(input, options)
   }
+}
+
+/**
+ * --- Official TOON (Token-Oriented Object Notation) Engine ---
+ */
+
+const TOON_DEFAULT_DELIMITER = ','
+const TOON_NULL_LITERAL = '∅'
+
+export function encodeToonPrimitive(value: unknown): string {
+  if (value === null || value === undefined) return TOON_NULL_LITERAL
+  if (typeof value === 'boolean') return String(value)
+  if (typeof value === 'number') return String(value)
+
+  const str = String(value)
+  // Spec: If string contains delimiter, newline, or is ambiguous, quote it.
+  const needsQuoting =
+    str.includes(TOON_DEFAULT_DELIMITER) ||
+    str.includes('\n') ||
+    str.includes(':') ||
+    str.includes('"') ||
+    str.trim() !== str
+
+  if (!needsQuoting) return str
+  return `"${str.replace(/"/g, '\\"')}"`
+}
+
+function formatToonHeader(
+  length: number,
+  options?: { key?: string | undefined; fields?: string[] | undefined },
+): string {
+  let header = options?.key ? `${options.key}` : ''
+  header += `[${length}]`
+  if (options?.fields) {
+    header += `{${options.fields.join(TOON_DEFAULT_DELIMITER)}}`
+  }
+  header += ':'
+  return header
+}
+
+/**
+ * Official TOON Recursive Encoder
+ */
+export function formatToTOON(input: unknown, depth: number = 0, key?: string): string {
+  const spacing = '  '.repeat(depth)
+
+  if (Array.isArray(input)) {
+    if (input.length === 0) return `${spacing}${formatToonHeader(0, { key })}`
+
+    const tabularResult = getTabularMetadata(input)
+    if (tabularResult) {
+      const { keys } = tabularResult
+      const header = formatToonHeader(input.length, { fields: keys, key })
+      const headerLine = `${spacing}${header}`
+      const rows = input
+        .map((row) => {
+          const values = keys.map((k) => encodeToonPrimitive((row as any)?.[k]))
+          return `\n${'  '.repeat(depth + 1)}${values.join(TOON_DEFAULT_DELIMITER)}`
+        })
+        .join('')
+      return `${headerLine}${rows}`
+    }
+
+    // List Array
+    const headerLine = `${spacing}${formatToonHeader(input.length, { key })}`
+    const items = input
+      .map((item) => {
+        const formatted = formatToTOON(item, depth + 1)
+        return `\n${'  '.repeat(depth + 1)}- ${formatted.trim()}`
+      })
+      .join('')
+    return `${headerLine}${items}`
+  }
+
+  if (typeof input === 'object' && input !== null) {
+    const entries = Object.entries(input)
+    if (entries.length === 0) return '{}'
+
+    return entries
+      .map(([k, v]) => {
+        if (Array.isArray(v)) {
+          return formatToTOON(v, depth, k)
+        }
+
+        const isComplex = typeof v === 'object' && v !== null && Object.keys(v).length > 0
+
+        if (isComplex) {
+          return `${spacing}${k}:\n${formatToTOON(v, depth + 1)}`
+        } else {
+          return `${spacing}${k}: ${encodeToonPrimitive(v)}`
+        }
+      })
+      .join('\n')
+  }
+
+  return encodeToonPrimitive(input)
+}
+
+function getTabularMetadata(arr: any[]): { keys: string[] } | null {
+  if (arr.length < 2) return null
+
+  // Sample up to 10 items for eligibility
+  const sample = arr.slice(0, 10)
+  if (sample.some((s) => typeof s !== 'object' || s === null || Array.isArray(s))) return null
+
+  // Robust Union-Scan for Headers
+  const allKeys = new Set<string>()
+  for (const s of sample) {
+    Object.keys(s).forEach((k) => allKeys.add(k))
+  }
+
+  const keys = Array.from(allKeys)
+  if (keys.length === 0) return null
+
+  // Check if it's "mostly" tabular (at least 50% primitives in values)
+  // This avoids trying to table-ify arrays of nested objects which TOON spec discourages
+  const nestedCount = sample.reduce((acc, obj) => {
+    return acc + Object.values(obj).filter((v) => typeof v === 'object' && v !== null).length
+  }, 0)
+
+  if (nestedCount > (sample.length * keys.length) / 2) {
+    return null
+  }
+
+  return { keys }
 }
 
 export function formatToYAML(input: unknown): string {
@@ -598,7 +370,7 @@ export function formatToDMD(
         node.length >= options.tableifyThreshold &&
         isArrayOfSimilarObjects(node)
       ) {
-        return formatAsTable(node, indent)
+        return formatToTOON(node, indent).trim()
       }
 
       return node.map((item) => `\n${spacing}- ${toMarkdown(item, indent + 1, true)}`).join('')
@@ -647,28 +419,4 @@ function isArrayOfSimilarObjects(arr: unknown[]): boolean {
     const overlap = overlapCount / Math.max(firstKeys.length, 1)
     return overlap >= 0.8
   })
-}
-
-function formatAsTable(arr: unknown[], indent: number): string {
-  const sample = arr.slice(0, 3)
-  const allKeys = Array.from(
-    new Set(sample.flatMap((s) => Object.keys(s as Record<string, unknown>))),
-  )
-  const spacing = '  '.repeat(indent)
-
-  const header = allKeys.join(' | ')
-  const rows = arr.map((item) => {
-    const itemRecord = item as Record<string, unknown>
-    const values = allKeys.map((k) => {
-      const val = itemRecord[k]
-      if (val === undefined || val === null) {
-        return ''
-      }
-      const strVal = typeof val === 'object' ? JSON.stringify(val) : String(val)
-      return strVal.replace(/\|/g, '\\|')
-    })
-    return values.join(' | ')
-  })
-
-  return `\n${spacing}${header}\n${spacing}${rows.join(`\n${spacing}`)}`
 }
