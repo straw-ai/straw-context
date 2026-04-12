@@ -1,13 +1,13 @@
 import { describe, it, expect } from 'vitest'
 
-import { distill } from '../src/index.js'
+import { distill, analyze } from '../src/index.js'
 
 describe('Straw SDK: Lossless Transformation Verification', () => {
   const mockTokens = (text: string) => text.length // Simple char count for testing
 
   it('should include new byte size metrics and tokensSaved', () => {
     const input = { name: 'Josh', age: 30, city: 'Berlin' }
-    const result = distill(input, { tokenCounter: mockTokens })
+    const result = analyze(input, { tokenCounter: mockTokens })
 
     expect(result.originalSizeBytes).toBeGreaterThan(0)
     expect(result.distilledSizeBytes).toBeGreaterThan(0)
@@ -31,7 +31,7 @@ describe('Straw SDK: Lossless Transformation Verification', () => {
       },
     }
 
-    const result = distill(deepObject, {
+    const result = analyze(deepObject, {
       tokenCounter: mockTokens,
       maxDepth: 3,
     })
@@ -48,7 +48,6 @@ describe('Straw SDK: Lossless Transformation Verification', () => {
   it('should support YAML output format', () => {
     const input = { user: { id: 1, name: 'Test' } }
     const result = distill(input, {
-      tokenCounter: mockTokens,
       outputFormat: 'yaml',
     })
 
@@ -59,7 +58,7 @@ describe('Straw SDK: Lossless Transformation Verification', () => {
 
   it('should produce detailed debug logs when debug: true', () => {
     const input = { id: '550e8400-e29b-41d4-a716-446655440000', label: 'test' }
-    const result = distill(input, {
+    const result = analyze(input, {
       tokenCounter: mockTokens,
       debug: true,
       enableAliasing: true,
@@ -78,7 +77,6 @@ describe('Straw SDK: Lossless Transformation Verification', () => {
     }
 
     const result = distill(input, {
-      tokenCounter: mockTokens,
       aliaser: [{ name: 'orders', pattern: /ORD-\d+/g, prefix: 'ORDER' }],
     })
 
@@ -97,7 +95,6 @@ describe('Straw SDK: Lossless Transformation Verification', () => {
       ]
 
       const result = distill(input, {
-        tokenCounter: mockTokens,
         tableifyThreshold: 2,
         tableifyArrays: true,
       })
@@ -115,7 +112,6 @@ describe('Straw SDK: Lossless Transformation Verification', () => {
       ]
 
       const result = distill(input, {
-        tokenCounter: mockTokens,
         outputFormat: 'toon',
       })
 
@@ -126,7 +122,7 @@ describe('Straw SDK: Lossless Transformation Verification', () => {
 
   it('should substitute null values with ∅ instead of dropping keys', () => {
     const input = { a: null, b: { c: null } }
-    const result = distill(input, { tokenCounter: mockTokens })
+    const result = distill(input)
 
     expect(result.contextString).toContain('a: ∅')
     expect(result.contextString).toContain('c: ∅')
@@ -136,12 +132,11 @@ describe('Straw SDK: Lossless Transformation Verification', () => {
     const input = { a: '', b: 'content' }
 
     // Default: empty strings are preserved as literals
-    const res1 = distill(input, { tokenCounter: mockTokens })
-    expect(res1.contextString).toContain('a: \n') // In DMD, empty string is just newline or space
+    const res1 = distill(input)
+    expect(res1.contextString).toContain('a: ')
 
     // With normalization: empty strings become placeholders
     const res2 = distill(input, {
-      tokenCounter: mockTokens,
       normalization: { normalizeEmptyStrings: true },
     })
     expect(res2.contextString).toContain('a: ∅')

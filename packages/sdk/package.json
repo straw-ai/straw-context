@@ -37,7 +37,8 @@
     "format:check": "oxfmt --config ../../.oxfmtrc.json --check .",
     "spellcheck": "cspell \"src/**/*.ts\"",
     "dev": "tsup --watch",
-    "bench:ppl": "npx tsx src/bench/index.ts"
+    "bench:ppl": "npx tsx test/perf/cli.ts",
+    "test:perf": "vitest run -c vitest.perf.config.ts"
   },
   "devDependencies": {
     "@types/js-yaml": "^4.0.9",

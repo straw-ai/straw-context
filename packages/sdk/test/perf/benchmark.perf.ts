@@ -2,7 +2,7 @@ import { getEncoding } from 'js-tiktoken'
 import yaml from 'js-yaml'
 import { describe, it } from 'vitest'
 
-import { distill } from '../src/index.js'
+import { analyze } from '../../src/index.js'
 
 describe('Multi-Format Performance Comparison (Lossless Architecture)', () => {
   const enc = getEncoding('cl100k_base') // GPT-4 encoding
@@ -161,13 +161,13 @@ describe('Multi-Format Performance Comparison (Lossless Architecture)', () => {
       const yamlTokens = tokenCounter(yamlStr)
 
       // 3. DMD Pass (Lossless)
-      const resultDMD = distill(tc.data, {
+      const resultDMD = analyze(tc.data, {
         tokenCounter,
         tableifyArrays: false,
       })
 
       // 4. TOON Pass (Lossless)
-      const resultTOON = distill(tc.data, {
+      const resultTOON = analyze(tc.data, {
         tokenCounter,
         tableifyArrays: true,
         tableifyThreshold: 3,

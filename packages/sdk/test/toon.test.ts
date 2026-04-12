@@ -71,7 +71,6 @@ describe('Official TOON Spec Integration', () => {
     }
     const { contextString } = distill(data, {
       outputFormat: 'toon',
-      pruning: { null: false }, // Disable pruning to see the placeholder
     })
 
     expect(contextString).toContain('missing: ∅')

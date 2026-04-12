@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 
-import { distill } from '../src/index.js'
+import { distill, analyze } from '../src/index.js'
 import { estimateTokens } from './estimate.js'
 
 describe('Lossless Structural Transformation (Straw SDK)', () => {
@@ -18,12 +18,12 @@ describe('Lossless Structural Transformation (Straw SDK)', () => {
     })
 
     it('accepts an empty object', () => {
-      const { contextString } = distill({}, { tokenCounter: estimateTokens })
+      const { contextString } = distill({})
       expect(contextString).toBe('{}')
     })
 
     it('accepts an empty array', () => {
-      const { contextString } = distill([], { tokenCounter: estimateTokens })
+      const { contextString } = distill([])
       expect(contextString).toBe('[]')
     })
   })
@@ -37,7 +37,7 @@ describe('Lossless Structural Transformation (Straw SDK)', () => {
         valid: 'data',
       }
 
-      const { contextString } = distill(raw, { tokenCounter: estimateTokens })
+      const { contextString } = distill(raw)
       // Enterprise Ready: We NEVER drop keys
       expect(contextString).toContain('id: 123')
       expect(contextString).toContain('valid: data')
@@ -58,7 +58,6 @@ describe('Lossless Structural Transformation (Straw SDK)', () => {
           undefinedPlaceholder: 'Unknown',
           normalizeEmptyStrings: true,
         },
-        tokenCounter: estimateTokens,
       })
       expect(contextString).toContain('empty_str: None')
       expect(contextString).toContain('missing: None')
@@ -67,7 +66,7 @@ describe('Lossless Structural Transformation (Straw SDK)', () => {
 
     it('preserves empty objects but represents them structurally', () => {
       const raw = { empty: {}, keep: { a: 1 } }
-      const { contextString } = distill(raw, { tokenCounter: estimateTokens })
+      const { contextString } = distill(raw)
       // We keep the keys to maintain structural integrity
       expect(contextString).toContain('empty: {}')
       expect(contextString).toContain('keep:')
@@ -81,7 +80,6 @@ describe('Lossless Structural Transformation (Straw SDK)', () => {
 
       const { contextString, reverseMap } = distill(data, {
         enableAliasing: true,
-        tokenCounter: estimateTokens,
       })
 
       expect(contextString).toContain('$UUID_0')
@@ -105,7 +103,6 @@ describe('Lossless Structural Transformation (Straw SDK)', () => {
         outputFormat: 'toon',
         tableifyArrays: true,
         tableifyThreshold: 3,
-        tokenCounter: estimateTokens,
       })
 
       expect(result.contextString).toContain('users[4]{id,name,role,common,unique}:')
@@ -119,7 +116,8 @@ describe('Lossless Structural Transformation (Straw SDK)', () => {
       const data: any = { name: 'Alice' }
       data.self = data
 
-      const { contextString, warnings } = distill(data, { tokenCounter: estimateTokens })
+      // circular detection warnings are part of analyze result
+      const { contextString, warnings } = analyze(data, { tokenCounter: estimateTokens })
 
       expect(contextString).toContain('name: Alice')
       expect(contextString).toContain('self: ∅')

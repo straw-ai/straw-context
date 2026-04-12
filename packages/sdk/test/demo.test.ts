@@ -1,10 +1,10 @@
 import { describe, it } from 'vitest'
 
-import { distill } from '../src/index.js'
+import { StrawService } from '../src/index.js'
 import { estimateTokens } from './estimate.js'
 
-describe('ContextDistiller Demo', () => {
-  it('shows Input vs Output in the console', () => {
+describe('Straw Context Optimizer Demo', () => {
+  it('shows Input vs Output analytics', () => {
     const input = {
       project: 'Project-X',
       config: {
@@ -20,8 +20,7 @@ describe('ContextDistiller Demo', () => {
         },
       },
       description:
-        "This is a very long description that we want to see truncated middle-out because it's too much data for a single prompt to handle if there are hundreds of these objects. " +
-        'X'.repeat(500),
+        "This is a very long description that we want to see ... because it's too much data for a single prompt to handle if there are hundreds of these objects.",
       users: [
         { id: 1, name: 'Alice', role: 'admin', email: 'alice@example.com' },
         { id: 2, name: 'Bob', role: 'user', email: 'bob@example.com' },
@@ -29,23 +28,18 @@ describe('ContextDistiller Demo', () => {
       ],
     }
 
-    console.log(input)
+    const straw = new StrawService({ tokenCounter: estimateTokens })
+    const result = straw.analyze(input, { debug: true })
 
-    const result = distill(input, {
-      tokenCounter: estimateTokens,
-      maxStringLength: 100,
-      stringTruncationStrategy: 'middle',
-    })
-
-    console.log('\n' + '='.repeat(20) + ' INPUT ' + '='.repeat(20))
+    console.log('\n' + '='.repeat(20) + ' INPUT RAW ' + '='.repeat(20))
     console.log(JSON.stringify(input, null, 2))
 
-    console.log('\n' + '='.repeat(20) + ' OUTPUT (DMD) ' + '='.repeat(20))
+    console.log('\n' + '='.repeat(20) + ' STRAW OUTPUT (DMD) ' + '='.repeat(20))
     console.log(result.contextString)
 
     console.log(`Baseline Tokens (Pretty):  ${result.stats.baselineTokens}`)
     console.log(`Minified Tokens (Bench):  ${result.stats.minifiedTokens}`)
-    console.log(`Distilled Tokens (DMD):   ${result.stats.distilledTokens}`)
+    console.log(`Straw Tokens (DMD):       ${result.stats.distilledTokens}`)
     console.log(`Reduction (Headline):     ${result.stats.reductionPercent}%`)
     console.log(`Efficiency Gain (Moat):   ${result.stats.efficiencyGain}%`)
     console.log(`Aliased IDs:              ${result.reverseMap.size}`)

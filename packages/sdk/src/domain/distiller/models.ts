@@ -1,3 +1,5 @@
+import { type AliaserRule } from './entities.js'
+
 /**
  * Configuration for how the minifier represents null or empty primitives.
  * Straw strictly preserves all keys for Enterprise Readiness.
@@ -24,22 +26,16 @@ export interface NormalizationOptions {
 export type OutputFormat = 'dmd' | 'toon' | 'xml' | 'json' | 'yaml'
 
 /**
- * Core Rule for the Aliaser Engine.
- * Replaces high-entropy strings (IDs, Hashes) with short, stable tokens.
+ * Function type for counting tokens in a string.
  */
-export interface AliaserRule {
-  /** Descriptive name of the aliaser (e.g. 'uuid') */
-  readonly name: string
-  /** The pattern to find in strings */
-  readonly pattern: RegExp
-  /** The prefix for generated tokens (e.g. 'UUID' becomes $UUID_0) */
-  readonly prefix: string
-}
+export type TokenCounter = (text: string) => number
 
-export interface DistillOptions {
+/**
+ * Options for the Straw process.
+ */
+export interface StrawOptions {
   /**
    * Keys or paths that should be treated as high priority for debugging.
-   * Note: Straw now preserves ALL keys by default.
    */
   essentialKeys?: string[]
   /** Convert arrays of similar objects to Markdown tables (TOON). @default false */
@@ -54,15 +50,13 @@ export interface DistillOptions {
   normalization?: NormalizationOptions
   /**
    * Maximum depth for recursive object traversal.
-   * Prevents stack overflows on extremely deep objects.
    * @default 50
    */
   maxDepth?: number
   /**
    * Custom token counter function (e.g. using tiktoken).
-   * Used for generating statistics in the DistillResult.
    */
-  tokenCounter?: (text: string) => number
+  tokenCounter?: TokenCounter
   /** Array of programmatic rules to alias IDs, SHAs, or custom patterns. */
   aliaser?: AliaserRule[]
   /** Override the default formatting strategy. @default 'dmd' */
@@ -71,14 +65,23 @@ export interface DistillOptions {
   debug?: boolean
 }
 
-export interface DistillResult {
-  /** The final distilled payload for the LLM (Lossless Transformation) */
+/**
+ * Lean result of the Straw transformation.
+ */
+export interface StrawResult {
+  /** The final transformed payload for the LLM */
   contextString: string
   /** Mapping of $ID_X back to original UUIDs/SHAs */
   reverseMap: Map<string, string>
+}
+
+/**
+ * Full analysis of the Straw transformation, including metrics and logs.
+ */
+export interface StrawAnalysis extends StrawResult {
   /** Size of the original input string in bytes */
   originalSizeBytes: number
-  /** Size of the final distilled string in bytes */
+  /** Size of the final transformed string in bytes */
   distilledSizeBytes: number
   /** Comparative statistics regarding token reduction */
   stats: {
@@ -99,13 +102,6 @@ export interface DistillResult {
   }
   /** Detailed tracing logs produced when `debug: true` */
   debugLogs?: string[]
-  /** Diagnostic warnings or telemetry about the distillation process */
+  /** Diagnostic warnings or telemetry about the process */
   warnings?: string[]
-}
-
-export class DistillError extends Error {
-  constructor(message: string) {
-    super(message)
-    this.name = 'DistillError'
-  }
 }
