@@ -85,7 +85,7 @@ describe('Straw SDK: Lossless Transformation Verification', () => {
     expect(result.contextString).not.toContain('ORD-12345')
   })
 
-  describe('Enterprise-Ready TOON v2 (Table Oriented Object Notation)', () => {
+  describe('Token Oriented Object Notation', () => {
     it('should union-scan headers across large arrays to prevent data loss', () => {
       const input = [
         { id: 1, common: 'yes' },

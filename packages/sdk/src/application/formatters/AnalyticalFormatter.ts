@@ -26,13 +26,11 @@ export class AnalyticalFormatter {
 
     // 1. Statistics Baselines (on original input)
     let baselineTokens = 0
-    let minifiedTokens = 0
     let prettyJson = ''
 
     try {
       prettyJson = JSON.stringify(input, null, 2)
       baselineTokens = this.tokenCounter(prettyJson)
-      minifiedTokens = this.tokenCounter(JSON.stringify(input))
     } catch {
       // Handle input that can be converted to string if necessary
     }
@@ -45,7 +43,6 @@ export class AnalyticalFormatter {
     if (baselineTokens === 0) {
       prettyJson = JSON.stringify(processed, null, 2)
       baselineTokens = this.tokenCounter(prettyJson)
-      minifiedTokens = this.tokenCounter(JSON.stringify(processed))
     }
 
     // 3. Formatting Pass
@@ -67,16 +64,11 @@ export class AnalyticalFormatter {
       distilledSizeBytes: new TextEncoder().encode(contextString).length,
       stats: {
         baselineTokens,
-        minifiedTokens,
         distilledTokens,
         tokensSaved: baselineTokens - distilledTokens,
         reductionPercent:
           baselineTokens > 0
             ? Number(((1 - distilledTokens / baselineTokens) * 100).toFixed(1))
-            : 0,
-        efficiencyGain:
-          minifiedTokens > 0
-            ? Number(((1 - distilledTokens / minifiedTokens) * 100).toFixed(1))
             : 0,
         durationMs: Date.now() - start,
       },

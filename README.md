@@ -2,7 +2,7 @@
 
 **High-Performance, Lossless Structural Minifier for LLM Context.**
 
-Straw is a zero-dependency, isomorphic engine designed to strip the "syntactic tax" from your structured JSON data while maintaining **100% data integrity**. By transforming verbose Objects and Arrays into **Dense Markdown Data (DMD)** and **Table Oriented Object Notation (TOON v2)**, Straw optimizes your data for the Transformer's attention mechanism, slashing token costs without losing a single key or character.
+Straw is a zero-dependency, isomorphic engine designed to strip the "syntactic tax" from your structured JSON data while maintaining **100% data integrity**. By transforming verbose Objects and Arrays into **Dense Markdown Data (DMD)** and **Token Oriented Object Notation**, Straw optimizes your data for the Transformer's attention mechanism, slashing token costs without losing a single key or character.
 
 ---
 
@@ -96,11 +96,11 @@ theme: dark
 notifications: true
 ```
 
-### [TOON v2] Table Oriented Object Notation (Enterprise-Ready)
+### [TOON] Token Oriented Object Notation
 
 When Straw detects an array of similar objects, it performs a **Union-Scan** of all keys and produces a high-density Markdown table. This is significantly more efficient than repeating keys for every array item.
 
-**TOON v2 Output:**
+**TOON Output:**
 
 ```markdown
 users[3]{name,role,status}:

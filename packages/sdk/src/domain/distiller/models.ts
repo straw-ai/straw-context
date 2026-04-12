@@ -87,16 +87,12 @@ export interface StrawAnalysis extends StrawResult {
   stats: {
     /** Tokens of the 2-space indented JSON baseline */
     baselineTokens: number
-    /** Tokens of the minified JSON baseline */
-    minifiedTokens: number
     /** Final tokens of the distilled Straw output */
     distilledTokens: number
     /** Absolute number of tokens saved compared to baselineTokens */
     tokensSaved: number
     /** Reduction against the pretty baseline (Headline %). e.g. 62.1 */
     reductionPercent: number
-    /** Reduction against the minified baseline (Efficiency Gain %). e.g. 46.3 */
-    efficiencyGain: number
     /** Total processing time in milliseconds */
     durationMs: number
   }

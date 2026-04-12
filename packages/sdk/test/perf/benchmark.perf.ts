@@ -131,7 +131,7 @@ describe('Multi-Format Performance Comparison (Lossless Architecture)', () => {
   ]
 
   it('compares Raw vs Min vs YAML vs DMD/TOON (Lossless Analysis)', () => {
-    const colWidths = [30, 8, 8, 8, 8, 8, 12, 12]
+    const colWidths = [30, 8, 8, 8, 8, 8, 12]
     const header = [
       'Dataset'.padEnd(colWidths[0]),
       'Raw'.padStart(colWidths[1]),
@@ -140,7 +140,6 @@ describe('Multi-Format Performance Comparison (Lossless Architecture)', () => {
       'DMD'.padStart(colWidths[4]),
       'TOON'.padStart(colWidths[5]),
       'Headline'.padStart(colWidths[6]),
-      'Efficiency'.padStart(colWidths[7]),
     ].join(' | ')
 
     console.log('\n' + '='.repeat(header.length + 4))
@@ -174,7 +173,6 @@ describe('Multi-Format Performance Comparison (Lossless Architecture)', () => {
       })
 
       const headline = resultTOON.stats.reductionPercent
-      const efficiency = resultTOON.stats.efficiencyGain
 
       const row = [
         tc.name.padEnd(colWidths[0]),
@@ -184,7 +182,6 @@ describe('Multi-Format Performance Comparison (Lossless Architecture)', () => {
         String(resultDMD.stats.distilledTokens).padStart(colWidths[4]),
         String(resultTOON.stats.distilledTokens).padStart(colWidths[5]),
         `${headline}%`.padStart(colWidths[6]),
-        `${efficiency}%`.padStart(colWidths[7]),
       ].join(' | ')
 
       console.log(`| ${row} |`)
