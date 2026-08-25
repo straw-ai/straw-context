@@ -18,6 +18,22 @@ OpenAI is the default adapter. Use `--adapter anthropic` for Anthropic Messages 
 
 Token counts from the OpenAI tokenizer are marked `high`. Anthropic and unknown models use an explicitly `estimated` character-based fallback in the CLI.
 
+## Writing development fixtures
+
+`@straw-ai/cli/capture` exports `createJsonFixtureWriter` for use with the SDK's `createContractCaptureHandler`. The writer requires a sanitizer callback and saves exactly its return value:
+
+```ts
+import { createJsonFixtureWriter } from '@straw-ai/cli/capture'
+
+const fixture = createJsonFixtureWriter({
+  directory: './test/fixtures',
+  fileName: () => 'support-read-only.json',
+  sanitize: ({ request }) => ({ model: request.target?.model, input: '[redacted]' }),
+})
+```
+
+This is intended for controlled integration-test data. It does not automatically persist production requests or decide which fields are safe.
+
 See the [repository README](../../README.md) for the complete contract format, baseline privacy notes, and SDK example.
 
 ## License

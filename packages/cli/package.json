@@ -11,6 +11,10 @@
     "README.md"
   ],
   "type": "module",
+  "exports": {
+    ".": "./dist/index.js",
+    "./capture": "./dist/capture.js"
+  },
   "scripts": {
     "build": "tsup && tsc --noEmit",
     "test": "pnpm --filter @straw-ai/sdk build && vitest run",

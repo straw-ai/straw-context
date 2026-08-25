@@ -106,6 +106,20 @@ Use representative development fixtures to enforce stable invariants across appl
 
 Paths are resolved relative to the suite file. Each scenario may also reference a `baseline`; use that only for stable fixtures or components. `straw check` runs every scenario and returns one CI result.
 
+Provider capture wrappers can collect the real payloads created by integration tests:
+
+```ts
+import { captureOpenAIClient } from '@straw-ai/sdk'
+
+const client = captureOpenAIClient(openai, {
+  onCapture: ({ request }) => saveDevelopmentFixture(request.raw),
+})
+
+await client.responses.create(yourNormalRequest)
+```
+
+Capture happens before the provider call and supports OpenAI Responses, OpenAI Chat Completions, and Anthropic Messages. Straw does not automatically persist captured data; fixture storage must be an explicit application choice.
+
 ## Baseline privacy
 
 Baselines do not store raw prompts, messages, schemas, or detected secret values. They contain metrics plus deterministic content and structure fingerprints.
