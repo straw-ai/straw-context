@@ -2,7 +2,7 @@
   "name": "straw-monorepo",
   "version": "0.0.1",
   "private": true,
-  "description": "",
+  "description": "Static analysis and regression testing for assembled LLM requests",
   "scripts": {
     "build": "turbo run build",
     "dev": "turbo run dev",
@@ -28,7 +28,7 @@
     "lint-staged": "^16.4.0",
     "oxfmt": "^0.42.0",
     "turbo": "^2.1.2",
-    "vitest": "^4.1.2"
+    "vitest": "^2.1.2"
   },
   "lint-staged": {
     "*.{ts,js,json,md}": [

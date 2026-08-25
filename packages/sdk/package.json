@@ -1,14 +1,17 @@
 {
   "name": "@straw-ai/sdk",
   "version": "0.0.1",
-  "description": "Context Optimization SDK",
+  "description": "Static analysis and regression testing for assembled LLM requests",
   "keywords": [
+    "ai-agents",
     "context",
+    "context-ci",
     "json",
     "llm",
     "markdown",
-    "minification",
-    "prompt-engineering"
+    "prompt-engineering",
+    "regression-testing",
+    "static-analysis"
   ],
   "license": "MIT",
   "author": "Straw AI",
@@ -29,7 +32,7 @@
     "./package.json": "./package.json"
   },
   "scripts": {
-    "build": "tsup && tsc --emitDeclarationOnly",
+    "build": "tsup && tsc -b --force",
     "test": "vitest run",
     "lint": "oxlint",
     "format": "oxfmt --config ../../.oxfmtrc.json --write .",
@@ -37,14 +40,15 @@
     "spellcheck": "cspell \"src/**/*.ts\"",
     "dev": "tsup --watch"
   },
+  "dependencies": {
+    "js-tiktoken": "^1.0.21"
+  },
   "devDependencies": {
-    "@types/js-yaml": "^4.0.9",
-    "js-tiktoken": "^1.0.21",
-    "js-yaml": "^4.1.1",
     "oxfmt": "^0.42.0",
     "oxlint": "^1.58.0",
     "tsup": "^8.5.1",
+    "tsx": "^4.19.1",
     "typescript": "~5.8.3",
-    "vitest": "^4.1.2"
+    "vitest": "^2.1.2"
   }
 }

@@ -1,0 +1,12 @@
+{
+  "model": "claude-test",
+  "system": "Keep answers short.",
+  "tools": [{ "name": "search", "input_schema": { "type": "object" } }],
+  "messages": [
+    { "role": "user", "content": "Find an invoice." },
+    {
+      "role": "user",
+      "content": [{ "type": "tool_result", "tool_use_id": "tool-1", "content": "Found" }]
+    }
+  ]
+}

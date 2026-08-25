@@ -1,0 +1,6 @@
+{
+  "name": "secure-context",
+  "sensitiveData": {
+    "forbiddenPaths": ["**.customerId"]
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "model": "gpt-4o",
+  "instructions": "Answer support questions using the available tools.",
+  "tools": [
+    {
+      "type": "function",
+      "name": "get_ticket",
+      "description": "Retrieve a support ticket by identifier.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" }
+        },
+        "required": ["id"]
+      }
+    }
+  ],
+  "input": "Summarize ticket TKT-123."
+}
