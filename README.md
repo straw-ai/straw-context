@@ -1,144 +1,146 @@
-# @straw-ai/sdk
+# Straw
 
-**High-Performance, Lossless Structural Minifier for LLM Context.**
+Static analysis and regression testing for the request your application sends to an LLM.
 
-Straw is a zero-dependency, isomorphic engine designed to strip the "syntactic tax" from your structured JSON data while maintaining **100% data integrity**. By transforming verbose Objects and Arrays into **Dense Markdown Data (DMD)** and **Token Oriented Object Notation**, Straw optimizes your data for the Transformer's attention mechanism, slashing token costs without losing a single key or character.
+Straw turns an assembled OpenAI, Anthropic, or provider-neutral request into a stable manifest. It shows where the context window goes, detects deterministic input problems, and lets CI compare the request against a reviewed baseline and contract.
 
----
+```text
+application request → adapter → analyzers → manifest → baseline/diff/contract → CI result
+```
 
-## ⚡ The Enterprise Reset: Deterministic & Lossless
+## Why analyze the assembled request?
 
-Straw has been sharpened for **Enterprise-Grade Context Engineering**. It is not a lossy compressor; it is a high-fidelity structural translator that guarantees structural integrity.
+Prompt files are only part of an LLM call. Applications also attach message history, tool schemas, retrieved documents, memory, and tool results. Changes to those can silently increase cost, expose a dangerous tool, duplicate context, include a forbidden field, or alter component structure.
 
-### 🎯 Who is this for?
+Straw inspects that final request before it crosses the provider boundary. It complements prompt evals and production observability: evals test behavior, observability records live calls, and Straw enforces deterministic request-shape policy in development and CI.
 
-- **Enterprise Engineering**: If you need to inject massive datasets into LLM context without risking data loss or "key dropping."
-- **RAG & Agent Engineers**: If you are hitting context limits and need to maximize the token efficiency of every byte sent to the model.
-- **Cost-Conscious Teams**: If you want to cut your OpenAI/Anthropic bill by 30-50% purely by eliminating redundant brackets, braces, and quotes.
+## What Straw does
 
-### 🚫 Who is this NOT for?
+- Breaks requests into instructions, tool definitions, messages, tool results, retrieval, memory, attachments, and custom components.
+- Measures token composition with a model-specific or user-provided tokenizer.
+- Profiles tool schemas and rejects duplicate tool names.
+- Detects exact duplicate components and estimates their token waste.
+- Detects explicit forbidden JSON paths and a narrow set of high-confidence secret formats.
+- Creates baselines and attributes changes by component and context kind.
+- Enforces token, regression, tool, duplication, sensitive-data, and structural contracts.
 
-- **Lossy Budgeting**: Straw does NOT drop keys or truncate strings to fit a budget. It is a deterministic transformer.
-- **Unstructured Log Parsing**: Straw assumes your data is already structured (Object or Array).
-- **Human-First Debugging**: DMD and TOON are designed for Machine-to-Machine communication.
+Straw does not judge prompt quality, predict answer quality, or provide broad PII classification. Built-in checks are intentionally deterministic, local, and do not send request content to an AI model.
 
----
+## Packages
 
-## 📦 Installation
+- `@straw-ai/sdk`: adapters, analyzers, manifests, baselines, contracts, reporters, and tokenizer extension points.
+- `@straw-ai/cli`: `inspect`, `baseline`, `diff`, and `test` commands.
+
+## CLI quick start
 
 ```bash
-npm install @straw-ai/sdk
-# or
-pnpm add @straw-ai/sdk
+pnpm install
+pnpm build
+
+node packages/cli/dist/index.js inspect request.json
+node packages/cli/dist/index.js baseline request.json --output context.baseline.json
+node packages/cli/dist/index.js diff context.baseline.json request.json
+node packages/cli/dist/index.js test request.json --contract context.contract.json --baseline context.baseline.json
 ```
 
----
+OpenAI is the default adapter. Other request shapes are explicit:
 
-## 🚀 Quick Start (Lossless Translation)
-
-Initialize Straw to see immediate token savings with zero data loss.
-
-```typescript
-import { distill } from '@straw-ai/sdk'
-
-const data = {
-  id: '550e8400-e29b-41d4-a716-446655440000',
-  user: {
-    name: 'Josh',
-    role: 'admin',
-    metadata: null, // Will be normalized to ∅
-  },
-  tags: ['beta', 'internal'],
-}
-
-const { contextString } = distill(data, {
-  enableAliasing: true, // Replaces high-entropy UUIDs with $UUID_0
-})
-
-console.log(contextString)
-/*
-user:
-  name: Josh
-  role: admin
-  metadata: ∅
-tags: [beta, internal]
-id: $UUID_0
-*/
+```bash
+straw inspect request.json --adapter anthropic
+straw inspect request.json --adapter message
 ```
 
----
+| Adapter     | Request shape                                          |
+| ----------- | ------------------------------------------------------ |
+| `openai`    | Responses API and Chat Completions                     |
+| `anthropic` | Anthropic Messages, including block-level tool results |
+| `message`   | `{ provider, model, system, tools, messages }`         |
 
-## 📂 Deep Dives: Formatting Engines
-
-### [DMD] Dense Markdown Data
-
-Nested objects are transformed into a structural indentation format. Unlike JSON, DMD removes the "bracket tax" while maintaining the semantic hierarchy that LLMs natively understand.
-
-**JSON (95 tokens):**
+## Contract example
 
 ```json
 {
-  "user": {
-    "profile": {
-      "settings": { "theme": "dark", "notifications": true }
-    }
-  }
+  "name": "support-agent",
+  "tokens": {
+    "maxComponentTokens": 12000,
+    "byKind": { "tool-definition": 3000, "retrieval": 6000 }
+  },
+  "regression": { "maxIncrease": 500, "maxIncreasePercent": 10 },
+  "tools": {
+    "maxCount": 12,
+    "required": ["search"],
+    "forbidden": ["delete_account"]
+  },
+  "duplication": { "maxDuplicateComponents": 0, "maxDuplicateTokens": 0 },
+  "sensitiveData": {
+    "forbiddenPaths": ["**.customer.ssn", "/messages/*/metadata/internalNotes"],
+    "detectSecrets": true
+  },
+  "structure": { "maxAdded": 1, "maxRemoved": 0, "maxChanged": 0 }
 }
 ```
 
-**DMD (63 tokens):**
+`straw test` exits with status `1` on failure. Regression and structural rules require `--baseline`.
 
-```markdown
-user:
-profile:
-settings:
-theme: dark
-notifications: true
-```
+## Baseline privacy
 
-### [TOON] Token Oriented Object Notation
+Baselines do not store raw prompts, messages, schemas, or detected secret values. They contain metrics plus deterministic content and structure fingerprints.
 
-When Straw detects an array of similar objects, it performs a **Union-Scan** of all keys and produces a high-density Markdown table. This is significantly more efficient than repeating keys for every array item.
+Fingerprints are non-cryptographic change identifiers, not anonymization. A baseline can disclose component IDs, paths, kinds, token counts, and whether content changed. Review it before committing when names or paths are sensitive.
 
-**TOON Output:**
+## Token accuracy
 
-```markdown
-users[3]{name,role,status}:
-Josh,admin,active
-Sarah,member,∅
-Michael,guest,active
-```
+Every count is labeled `exact`, `high`, or `estimated`.
 
-_(Note: Straw uses the mathematically concise `∅` as a zero-token placeholder for missing heterogeneous values)._
+- `OpenAITokenizer` uses `js-tiktoken` and is marked `high`: encoding is model-aware, but provider-side request framing can add tokens.
+- Anthropic and unknown providers use the CLI's character estimate unless a compatible tokenizer is registered.
+- The SDK accepts synchronous or asynchronous custom tokenizers and selects the highest-priority compatible implementation.
 
----
+Straw rejects token-regression contracts across different provider/model targets.
 
-## 🔄 Handling Aliases (Reverse Mapping)
+## SDK example
 
-If you enable `enableAliasing`, Straw replaces high-entropy strings (UUIDs, SHAs) with short tokens like `$UUID_0`. To map these back to your database IDs after an LLM response:
+```ts
+import {
+  adaptOpenAIRequest,
+  createContextManifest,
+  ExactDuplicationAnalyzer,
+  OpenAITokenizer,
+  SensitiveDataAnalyzer,
+  TokenCompositionAnalyzer,
+  TokenizerRegistry,
+  ToolSchemaAnalyzer,
+} from '@straw-ai/sdk'
 
-```typescript
-const { contextString, reverseMap } = distill(data, { enableAliasing: true })
-
-// LLM responds: "The user $UUID_0 should be promoted."
-const llmResponse = '...'
-
-let finalOutput = llmResponse
-reverseMap.forEach((originalValue, alias) => {
-  finalOutput = finalOutput.replace(alias, originalValue)
+const request = adaptOpenAIRequest({
+  model: 'gpt-4.1-mini',
+  instructions: 'Answer using the available tools.',
+  tools: [{ type: 'function', name: 'search', parameters: { type: 'object' } }],
+  input: [{ role: 'user', content: 'Find invoice 42.' }],
 })
+
+const tokenizers = new TokenizerRegistry().register(new OpenAITokenizer())
+const manifest = await createContextManifest(
+  request,
+  [
+    new TokenCompositionAnalyzer(),
+    new ExactDuplicationAnalyzer(),
+    new ToolSchemaAnalyzer(),
+    new SensitiveDataAnalyzer({ forbiddenPaths: ['**.ssn'] }),
+  ],
+  { tokenizers },
+)
 ```
 
----
+See [`packages/sdk/README.md`](packages/sdk/README.md) for SDK extension points.
 
-## ⚖️ Technical Philosophy
+## Development
 
-1. **Deterministic & Lossless**: Straw never drops keys or truncates data. It is a stable, 1:1 structural transformer.
-2. **Enterprise Ready**: Specialized for high-throughput, zero-trust context engineering.
-3. **Privacy First**: Sensitive IDs are aliased locally via the Aliaser engine.
-4. **Isomorphic**: Runs in Node.js, Browsers, Edge Workers, and Bun.
-
----
+```bash
+pnpm build
+pnpm test
+pnpm lint
+```
 
 ## License
 

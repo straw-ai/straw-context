@@ -1,156 +1,112 @@
-# @straw-ai/sdk
+# `@straw-ai/sdk`
 
-**High-Performance, Lossless Structural Minifier for LLM Context.**
+Composable static analysis and regression testing for assembled LLM requests.
 
-Straw is a zero-dependency, isomorphic engine designed to strip the "syntactic tax" from your structured JSON data before it hits an LLM. By transforming verbose Objects and Arrays into **Dense Markdown Data (DMD)** and **Token Oriented Object Notation (TOON v2)**, Straw optimizes your data for the Transformer's attention mechanism, slashing token costs without losing a single key or character.
-
----
-
-## ⚡ The Enterprise Reset: Deterministic & Lossless
-
-Straw has been sharpened for **High-Fidelity Context Engineering**. It is not a generalized ETL tool; it is a specialized machine-to-machine translator that guarantees structural integrity.
-
-### 🎯 Who is this for?
-
-- **Enterprise Engineering**: If you need to inject massive datasets into LLM context without risking data loss or "key dropping."
-- **RAG & Agent Engineers**: If you are hitting context limits and need to maximize the token efficiency of every byte sent to the model.
-- **Cost-Conscious Teams**: If you want to cut your OpenAI/Anthropic bill by 30-50% purely by eliminating redundant brackets, braces, and quotes.
-
-### 🚫 Who is this NOT for?
-
-- **Lossy Compression**: Straw does NOT drop keys or truncate strings. It is a strictly lossless transformer.
-- **Unstructured Log Parsing**: Straw assumes your data is already structured (Object or Array).
-- **Human-First Debugging**: DMD and TOON are designed for LLMs. If you need 100% human-pretty JSON for a UI, stick to `JSON.stringify`.
-
----
-
-## 📦 Installation
+## Install
 
 ```bash
 npm install @straw-ai/sdk
-# or
-pnpm add @straw-ai/sdk
 ```
 
----
+## Analysis pipeline
 
-## 🚀 Quick Start (Lossless Translation)
+An adapter produces a provider-independent `ContextRequest` while preserving the untouched raw payload. Analyzers produce metrics and findings. The manifest can then be rendered, converted into a baseline, diffed, or evaluated against a contract.
 
-Initialize Straw to see immediate token savings with zero data loss.
+```ts
+import {
+  adaptAnthropicRequest,
+  createContextManifest,
+  ExactDuplicationAnalyzer,
+  SensitiveDataAnalyzer,
+  TokenCompositionAnalyzer,
+  TokenizerRegistry,
+  ToolSchemaAnalyzer,
+} from '@straw-ai/sdk'
 
-```typescript
-import { distill } from '@straw-ai/sdk'
-
-const data = {
-  id: '550e8400-e29b-41d4-a716-446655440000',
-  user: {
-    name: 'Josh',
-    role: 'admin',
-    metadata: null, // Normalizes to ∅
-  },
-  tags: ['beta', 'internal'],
-}
-
-const { contextString } = distill(data, {
-  enableAliasing: true, // Replaces UUIDs with $UUID_0
+const request = adaptAnthropicRequest({
+  model: 'claude-model',
+  system: 'Be concise.',
+  tools: [{ name: 'search', input_schema: { type: 'object' } }],
+  messages: [{ role: 'user', content: 'Find the invoice.' }],
 })
 
-console.log(contextString)
-/*
-user:
-  name: Josh
-  role: admin
-  metadata: ∅
-tags: [beta, internal]
-id: $UUID_0
-*/
-```
-
----
-
-## 📂 Deep Dives: Formatting Engines
-
-### [DMD] Dense Markdown Data
-
-Nested objects are transformed into a structural indentation format. Unlike JSON, DMD removes the "bracket tax" while maintaining the semantic hierarchy that LLMs natively understand.
-
-**JSON (95 tokens):**
-
-```json
-{
-  "user": {
-    "profile": {
-      "settings": { "theme": "dark", "notifications": true }
-    }
-  }
-}
-```
-
-**DMD (63 tokens):**
-
-```markdown
-user:
-profile:
-settings:
-theme: dark
-notifications: true
-```
-
-### [TOON] Token Oriented Object Notation
-
-When Straw detects an array of similar objects, it performs a **Union-Scan** of all keys and produces a high-density Markdown table. This is significantly more efficient than repeating keys for every array item.
-
-**TOON Output:**
-
-```markdown
-users[3]{name,role,status}:
-Josh,admin,active
-Sarah,member,∅
-Michael,guest,active
-```
-
-_(Note: Straw uses the mathematically concise `∅` as a zero-token placeholder for missing heterogeneous values)._
-
----
-
-## 🔄 Handling Aliases (Reverse Mapping)
-
-If you enable `enableAliasing`, Straw replaces high-entropy strings (UUIDs, SHAs) with short tokens like `$UUID_0`. To map these back to your database IDs after an LLM response:
-
-```typescript
-const { contextString, reverseMap } = distill(data, { enableAliasing: true })
-
-// LLM responds: "The user $UUID_0 should be promoted."
-const llmResponse = '...'
-
-let finalOutput = llmResponse
-reverseMap.forEach((originalValue, alias) => {
-  finalOutput = finalOutput.replace(alias, originalValue)
+const tokenizers = new TokenizerRegistry().register({
+  id: 'anthropic-counter',
+  priority: 100,
+  accuracy: 'high',
+  supports: ({ provider }) => provider === 'anthropic',
+  count: async (text, target) => countWithYourTokenizer(text, target.model),
 })
+
+const manifest = await createContextManifest(
+  request,
+  [
+    new TokenCompositionAnalyzer(),
+    new ExactDuplicationAnalyzer(),
+    new ToolSchemaAnalyzer(),
+    new SensitiveDataAnalyzer({ forbiddenPaths: ['**.ssn'] }),
+  ],
+  { tokenizers },
+)
 ```
 
----
+## Adapters
 
-## 🛠 API Reference: DistillOptions
+- `adaptOpenAIRequest`: OpenAI Responses and Chat Completions.
+- `adaptAnthropicRequest`: Anthropic Messages with block-level components.
+- `adaptMessageRequest`: generic `{ provider, model, system, tools, messages }` requests and configurable roles.
+- `createContextRequest`: extension point for framework-specific adapters and retrieval, memory, or attachment components.
 
-| Option           | Type       | Default     | Description                                        |
-| :--------------- | :--------- | :---------- | :------------------------------------------------- |
-| `enableAliasing` | `boolean`  | `false`     | Replaces UUIDs/SHAs with pointers.                 |
-| `tableifyArrays` | `boolean`  | `false`     | Enables TOON (Markdown Table) formatting.          |
-| `outputFormat`   | `string`   | `dmd`       | `dmd` \| `toon` \| `xml` \| `json` \| `yaml`       |
-| `normalization`  | `Object`   | `{}`        | Options for `null`/`undefined` substitution.       |
-| `tokenCounter`   | `Function` | `undefined` | Used for generating statistics. `(text) => number` |
+Adapters annotate existing values; they do not rewrite the raw request.
 
----
+## Tokenizers
 
-## ⚖️ Technical Philosophy
+`TokenizerRegistry` accepts custom `ContextTokenizer` implementations. They declare supported provider/model targets, priority, and accuracy; counting may be synchronous or asynchronous.
 
-1. **Deterministic & Lossless**: Straw never drops keys or truncates data. It is stable, 1:1 structural translation.
-2. **Enterprise Ready**: Specialized for high-throughput, zero-trust context engineering.
-3. **Privacy First**: Sensitive IDs are aliased locally via the Aliaser engine.
-4. **Isomorphic**: Runs in Node.js, Browsers, Edge Workers, and Bun.
+`OpenAITokenizer` uses `js-tiktoken`. Results are marked `high`, not `exact`, because Straw counts serialized components rather than reproducing all provider-side framing. No Anthropic tokenizer is bundled.
 
----
+## Analyzers
+
+| Analyzer                   | Output                                               |
+| -------------------------- | ---------------------------------------------------- |
+| `TokenCompositionAnalyzer` | Total and per-kind/component token estimates         |
+| `ExactDuplicationAnalyzer` | Exact repeated components and estimated waste        |
+| `ToolSchemaAnalyzer`       | Tool count, names, schema size, duplicate names      |
+| `SensitiveDataAnalyzer`    | Explicit forbidden paths and high-confidence secrets |
+
+Sensitive-data analysis is not broad PII classification. It performs deterministic local checks and never includes matched secret values in findings.
+
+## Baselines and diffs
+
+```ts
+import { createContextBaseline, diffContextManifest } from '@straw-ai/sdk'
+
+const baseline = createContextBaseline(manifest)
+const diff = diffContextManifest(baseline, nextManifest)
+```
+
+Baselines omit raw component values but retain metrics and non-cryptographic fingerprints. Diffs report added, removed, and changed components, content and structure changes, and token deltas by context kind.
+
+## Contracts
+
+Use `parseContextContract` for JSON configuration and `evaluateContextContract` for CI enforcement.
+
+```ts
+import { evaluateContextContract, parseContextContract } from '@straw-ai/sdk'
+
+const contract = parseContextContract({
+  name: 'support-agent',
+  tokens: { maxComponentTokens: 12000 },
+  tools: { required: ['search'], forbidden: ['delete_account'] },
+  duplication: { maxDuplicateComponents: 0 },
+  structure: { maxChanged: 0 },
+})
+
+const result = evaluateContextContract(nextManifest, contract, { baseline })
+if (!result.passed) process.exitCode = 1
+```
+
+Contract categories are `tokens`, `regression`, `tools`, `duplication`, `sensitiveData`, and `structure`. Contracts fail closed when a required analyzer, tokenizer measurement, or baseline is unavailable. Analyzer errors are contract failures.
 
 ## License
 

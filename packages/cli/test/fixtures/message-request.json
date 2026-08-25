@@ -1,0 +1,7 @@
+{
+  "provider": "acme-ai",
+  "model": "agent-1",
+  "system": "Keep answers short.",
+  "tools": [{ "name": "search", "inputSchema": { "type": "object" } }],
+  "messages": [{ "role": "user", "content": "Find an invoice." }]
+}

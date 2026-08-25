@@ -1,0 +1,10 @@
+{
+  "name": "support-agent",
+  "tokens": {
+    "maxComponentTokens": 200,
+    "byKind": {
+      "tool-definition": 150,
+      "message": 30
+    }
+  }
+}
