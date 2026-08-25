@@ -41,6 +41,7 @@ node packages/cli/dist/index.js inspect request.json
 node packages/cli/dist/index.js baseline request.json --output context.baseline.json
 node packages/cli/dist/index.js diff context.baseline.json request.json
 node packages/cli/dist/index.js test request.json --contract context.contract.json --baseline context.baseline.json
+node packages/cli/dist/index.js check straw.scenarios.json
 ```
 
 OpenAI is the default adapter. Other request shapes are explicit:
@@ -81,6 +82,29 @@ straw inspect request.json --adapter message
 ```
 
 `straw test` exits with status `1` on failure. Regression and structural rules require `--baseline`.
+
+## Scenario suites
+
+Use representative development fixtures to enforce stable invariants across application flows:
+
+```json
+{
+  "scenarios": [
+    {
+      "name": "support-read-only",
+      "request": "fixtures/support-request.json",
+      "adapter": "openai",
+      "contract": {
+        "tokens": { "maxComponentTokens": 12000 },
+        "tools": { "maxCount": 10, "forbidden": ["delete_account"] },
+        "sensitiveData": { "forbiddenPaths": ["**.ssn"] }
+      }
+    }
+  ]
+}
+```
+
+Paths are resolved relative to the suite file. Each scenario may also reference a `baseline`; use that only for stable fixtures or components. `straw check` runs every scenario and returns one CI result.
 
 ## Baseline privacy
 

@@ -74,4 +74,20 @@ describe('straw CLI', () => {
     expect(manifest.analyzers['tokens.composition']?.accuracy).toBe('estimated')
     expect(manifest.components.map(({ kind }) => kind)).toContain('tool-result')
   })
+
+  it('checks every scenario and returns one CI result', async () => {
+    const output = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
+    const code = await runCli(['check', resolve(fixtures, 'scenarios.json'), '--json'])
+
+    expect(code).toBe(1)
+    const suite = JSON.parse(String(output.mock.calls[0]?.[0])) as {
+      passed: boolean
+      scenarios: Array<{ name: string; passed: boolean }>
+    }
+    expect(suite.passed).toBe(false)
+    expect(suite.scenarios).toEqual([
+      expect.objectContaining({ name: 'support-read-only', passed: true }),
+      expect.objectContaining({ name: 'support-forbidden-tool', passed: false }),
+    ])
+  })
 })

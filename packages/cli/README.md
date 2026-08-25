@@ -9,9 +9,10 @@ straw inspect request.json [--adapter openai|anthropic|message] [--json]
 straw baseline request.json --output context.baseline.json [--adapter ...]
 straw diff context.baseline.json request.json [--adapter ...] [--json]
 straw test request.json --contract context.contract.json [--baseline context.baseline.json] [--adapter ...] [--json]
+straw check straw.scenarios.json [--json]
 ```
 
-`inspect` reports token composition, tools, exact duplication, and sensitive-data findings. `baseline` writes a comparison artifact without raw component values. `diff` attributes changes to components and context kinds. `test` enforces a contract and exits `1` when it fails.
+`inspect` reports token composition, tools, exact duplication, and sensitive-data findings. `baseline` writes a comparison artifact without raw component values. `diff` attributes changes to components and context kinds. `test` enforces one contract. `check` runs a complete scenario suite. Policy failures exit with status `1`.
 
 OpenAI is the default adapter. Use `--adapter anthropic` for Anthropic Messages or `--adapter message` for the provider-neutral message shape.
 

@@ -1,0 +1,18 @@
+{
+  "scenarios": [
+    {
+      "name": "support-read-only",
+      "request": "openai-request.json",
+      "adapter": "openai",
+      "contract": {
+        "tokens": { "maxComponentTokens": 1000 },
+        "tools": { "required": ["get_ticket"], "forbidden": ["delete_account"] }
+      }
+    },
+    {
+      "name": "support-forbidden-tool",
+      "request": "openai-request.json",
+      "contract": { "tools": { "forbidden": ["get_ticket"] } }
+    }
+  ]
+}

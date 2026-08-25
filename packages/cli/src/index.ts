@@ -1,4 +1,5 @@
 import { promises as fs } from 'fs'
+import { dirname, resolve } from 'path'
 import { pathToFileURL } from 'url'
 
 import {
@@ -21,14 +22,35 @@ import {
   TokenizerRegistry,
   ToolSchemaAnalyzer,
   type ContextBaseline,
+  type ContextContract,
+  type ContextContractResult,
   type ContextManifest,
 } from '@straw-ai/sdk'
+
+type AdapterName = 'openai' | 'anthropic' | 'message'
+
+interface ContextScenario {
+  readonly name: string
+  readonly request: string
+  readonly adapter: AdapterName
+  readonly contract: ContextContract
+  readonly baseline?: string
+}
+
+interface ScenarioResult {
+  readonly name: string
+  readonly request: string
+  readonly adapter: AdapterName
+  readonly passed: boolean
+  readonly result: ContextContractResult
+}
 
 const usage = `Usage:
   straw inspect <request.json> [--adapter openai|anthropic|message] [--json]
   straw baseline <request.json> --output <baseline.json> [--adapter openai|anthropic|message]
   straw diff <baseline.json> <request.json> [--adapter openai|anthropic|message] [--json]
   straw test <request.json> --contract <contract.json> [--baseline <baseline.json>] [--adapter openai|anthropic|message] [--json]
+  straw check <scenarios.json> [--json]
 
 Adapters: openai (default) supports Responses and Chat Completions; anthropic supports
 Messages; message supports the provider-neutral { provider, model, system, tools, messages } shape.`
@@ -46,6 +68,53 @@ function assertObject(value: unknown, label: string): asserts value is Record<st
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
     throw new TypeError(`${label} must contain a JSON object.`)
   }
+}
+
+function requiredString(value: unknown, path: string): string {
+  if (typeof value !== 'string' || !value.trim()) {
+    throw new TypeError(`${path} must be a non-empty string.`)
+  }
+  return value
+}
+
+function adapterName(value: unknown, path: string): AdapterName {
+  if (value === undefined) return 'openai'
+  if (value === 'openai' || value === 'anthropic' || value === 'message') return value
+  throw new TypeError(`${path} must be openai, anthropic, or message.`)
+}
+
+function parseScenarioSuite(value: unknown, suitePath: string): readonly ContextScenario[] {
+  assertObject(value, suitePath)
+  const unknownSuiteKey = Object.keys(value).find((key) => key !== 'scenarios')
+  if (unknownSuiteKey) throw new TypeError(`${suitePath}.${unknownSuiteKey} is unknown.`)
+  if (!Array.isArray(value.scenarios) || value.scenarios.length === 0) {
+    throw new TypeError(`${suitePath}.scenarios must be a non-empty array.`)
+  }
+  const names = new Set<string>()
+  return Object.freeze(
+    value.scenarios.map((item, index) => {
+      const path = `${suitePath}.scenarios[${index}]`
+      assertObject(item, path)
+      const unknownKey = Object.keys(item).find(
+        (key) => !['name', 'request', 'adapter', 'contract', 'baseline'].includes(key),
+      )
+      if (unknownKey) throw new TypeError(`${path}.${unknownKey} is unknown.`)
+      const name = requiredString(item.name, `${path}.name`)
+      if (names.has(name)) throw new TypeError(`${path}.name duplicates scenario "${name}".`)
+      names.add(name)
+      assertObject(item.contract, `${path}.contract`)
+      const contract = parseContextContract({ ...item.contract, name })
+      return Object.freeze({
+        name,
+        request: requiredString(item.request, `${path}.request`),
+        adapter: adapterName(item.adapter, `${path}.adapter`),
+        contract,
+        ...(item.baseline === undefined
+          ? {}
+          : { baseline: requiredString(item.baseline, `${path}.baseline`) }),
+      })
+    }),
+  )
 }
 
 function approximateTokenizers(): TokenizerRegistry {
@@ -84,6 +153,23 @@ async function inspect(
     ],
     { tokenizers: approximateTokenizers() },
   )
+}
+
+function renderScenarioResults(results: readonly ScenarioResult[]): string {
+  const passed = results.filter((result) => result.passed).length
+  const lines = [
+    'Straw Scenario Check',
+    '',
+    `Result: ${passed === results.length ? 'PASS' : 'FAIL'} (${passed}/${results.length} passed)`,
+  ]
+  for (const scenario of results) {
+    lines.push('', `${scenario.passed ? 'PASS' : 'FAIL'} ${scenario.name}`)
+    for (const finding of scenario.result.findings) {
+      const location = finding.location?.rawPath ? ` (${finding.location.rawPath})` : ''
+      lines.push(`  ${finding.severity.toUpperCase()} ${finding.title}${location}`)
+    }
+  }
+  return lines.join('\n')
 }
 
 export async function runCli(args: readonly string[]): Promise<number> {
@@ -161,6 +247,42 @@ export async function runCli(args: readonly string[]): Promise<number> {
       `${rest.includes('--json') ? JSON.stringify(result, null, 2) : renderContextContractResult(result)}\n`,
     )
     return result.passed ? 0 : 1
+  }
+
+  if (command === 'check') {
+    const suitePath = rest[0]
+    if (!suitePath || suitePath.startsWith('--')) {
+      throw new TypeError('check requires a scenario suite JSON path.')
+    }
+    const suite = parseScenarioSuite(await readJson(suitePath), suitePath)
+    const basePath = dirname(resolve(suitePath))
+    const results: ScenarioResult[] = []
+    for (const scenario of suite) {
+      const requestPath = resolve(basePath, scenario.request)
+      let baseline: ContextBaseline | undefined
+      if (scenario.baseline) {
+        const baselinePath = resolve(basePath, scenario.baseline)
+        const value = await readJson(baselinePath)
+        assertObject(value, baselinePath)
+        baseline = parseContextBaseline(value)
+      }
+      const result = evaluateContextContract(
+        await inspect(requestPath, scenario.contract.sensitiveData, scenario.adapter),
+        scenario.contract,
+        baseline ? { baseline } : {},
+      )
+      results.push({
+        name: scenario.name,
+        request: scenario.request,
+        adapter: scenario.adapter,
+        passed: result.passed,
+        result,
+      })
+    }
+    process.stdout.write(
+      `${rest.includes('--json') ? JSON.stringify({ passed: results.every((item) => item.passed), scenarios: results }, null, 2) : renderScenarioResults(results)}\n`,
+    )
+    return results.every((result) => result.passed) ? 0 : 1
   }
 
   throw new TypeError(`Unknown command: ${command}.\n\n${usage}`)
