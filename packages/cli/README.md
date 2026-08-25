@@ -9,7 +9,7 @@ straw inspect request.json [--adapter openai|anthropic|message] [--json]
 straw baseline request.json --output context.baseline.json [--adapter ...]
 straw diff context.baseline.json request.json [--adapter ...] [--json]
 straw test request.json --contract context.contract.json [--baseline context.baseline.json] [--adapter ...] [--json]
-straw check straw.scenarios.json [--json]
+straw check straw.scenarios.json [--json|--github]
 ```
 
 `inspect` reports token composition, tools, exact duplication, and sensitive-data findings. `baseline` writes a comparison artifact without raw component values. `diff` attributes changes to components and context kinds. `test` enforces one contract. `check` runs a complete scenario suite. Policy failures exit with status `1`.
@@ -33,6 +33,8 @@ const fixture = createJsonFixtureWriter({
 ```
 
 This is intended for controlled integration-test data. It does not automatically persist production requests or decide which fields are safe.
+
+In GitHub Actions, use `straw check straw.scenarios.json --github` to emit workflow error annotations for failing scenarios in addition to the summary.
 
 See the [repository README](../../README.md) for the complete contract format, baseline privacy notes, and SDK example.
 

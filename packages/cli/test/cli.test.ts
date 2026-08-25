@@ -90,4 +90,14 @@ describe('straw CLI', () => {
       expect.objectContaining({ name: 'support-forbidden-tool', passed: false }),
     ])
   })
+
+  it('emits GitHub Actions error annotations', async () => {
+    const output = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
+    const code = await runCli(['check', resolve(fixtures, 'scenarios.json'), '--github'])
+
+    expect(code).toBe(1)
+    expect(String(output.mock.calls[0]?.[0])).toContain(
+      '::error file=openai-request.json,title=Straw%3A support-forbidden-tool%3A Forbidden tool is exposed::',
+    )
+  })
 })

@@ -50,7 +50,7 @@ const usage = `Usage:
   straw baseline <request.json> --output <baseline.json> [--adapter openai|anthropic|message]
   straw diff <baseline.json> <request.json> [--adapter openai|anthropic|message] [--json]
   straw test <request.json> --contract <contract.json> [--baseline <baseline.json>] [--adapter openai|anthropic|message] [--json]
-  straw check <scenarios.json> [--json]
+  straw check <scenarios.json> [--json|--github]
 
 Adapters: openai (default) supports Responses and Chat Completions; anthropic supports
 Messages; message supports the provider-neutral { provider, model, system, tools, messages } shape.`
@@ -172,6 +172,29 @@ function renderScenarioResults(results: readonly ScenarioResult[]): string {
   return lines.join('\n')
 }
 
+function workflowValue(value: string): string {
+  return value.replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A')
+}
+
+function workflowProperty(value: string): string {
+  return workflowValue(value).replace(/:/g, '%3A').replace(/,/g, '%2C')
+}
+
+function renderGitHubAnnotations(results: readonly ScenarioResult[]): string {
+  return results
+    .flatMap((scenario) =>
+      scenario.result.findings
+        .filter((finding) => finding.severity === 'error')
+        .map((finding) => {
+          const title = workflowProperty(`Straw: ${scenario.name}: ${finding.title}`)
+          const file = workflowProperty(scenario.request)
+          const path = finding.location?.rawPath ? ` at ${finding.location.rawPath}` : ''
+          return `::error file=${file},title=${title}::${workflowValue(`${finding.message}${path}`)}`
+        }),
+    )
+    .join('\n')
+}
+
 export async function runCli(args: readonly string[]): Promise<number> {
   const [command, ...rest] = args
   if (!command || command === '--help' || command === '-h') {
@@ -254,6 +277,9 @@ export async function runCli(args: readonly string[]): Promise<number> {
     if (!suitePath || suitePath.startsWith('--')) {
       throw new TypeError('check requires a scenario suite JSON path.')
     }
+    if (rest.includes('--json') && rest.includes('--github')) {
+      throw new TypeError('check accepts either --json or --github, not both.')
+    }
     const suite = parseScenarioSuite(await readJson(suitePath), suitePath)
     const basePath = dirname(resolve(suitePath))
     const results: ScenarioResult[] = []
@@ -279,9 +305,18 @@ export async function runCli(args: readonly string[]): Promise<number> {
         result,
       })
     }
-    process.stdout.write(
-      `${rest.includes('--json') ? JSON.stringify({ passed: results.every((item) => item.passed), scenarios: results }, null, 2) : renderScenarioResults(results)}\n`,
-    )
+    const report = rest.includes('--json')
+      ? JSON.stringify(
+          { passed: results.every((item) => item.passed), scenarios: results },
+          null,
+          2,
+        )
+      : rest.includes('--github')
+        ? [renderGitHubAnnotations(results), renderScenarioResults(results)]
+            .filter(Boolean)
+            .join('\n')
+        : renderScenarioResults(results)
+    process.stdout.write(`${report}\n`)
     return results.every((result) => result.passed) ? 0 : 1
   }
 

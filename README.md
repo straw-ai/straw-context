@@ -30,6 +30,7 @@ Straw does not judge prompt quality, predict answer quality, or provide broad PI
 
 - `@straw-ai/sdk`: adapters, analyzers, manifests, baselines, contracts, reporters, and tokenizer extension points.
 - `@straw-ai/cli`: `inspect`, `baseline`, `diff`, and `test` commands.
+- `@straw-ai/vitest`: async context-contract matchers for application tests.
 
 ## CLI quick start
 
@@ -105,6 +106,29 @@ Use representative development fixtures to enforce stable invariants across appl
 ```
 
 Paths are resolved relative to the suite file. Each scenario may also reference a `baseline`; use that only for stable fixtures or components. `straw check` runs every scenario and returns one CI result.
+
+For native GitHub Actions annotations:
+
+```yaml
+- name: Check LLM context scenarios
+  run: straw check straw.scenarios.json --github
+```
+
+For direct integration tests, install `@straw-ai/vitest` and assert against the assembled request:
+
+```ts
+import { adaptOpenAIRequest } from '@straw-ai/sdk'
+import '@straw-ai/vitest'
+
+it('keeps read-only context within policy', async () => {
+  const request = adaptOpenAIRequest(buildSupportRequest())
+  await expect(request).toMatchContextContract({
+    name: 'support-read-only',
+    tokens: { maxComponentTokens: 12000 },
+    tools: { forbidden: ['delete_account'] },
+  })
+})
+```
 
 Provider capture wrappers can collect the real payloads created by integration tests:
 

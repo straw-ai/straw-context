@@ -14,6 +14,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 - Model-specific and user-defined tokenizer registry.
 - `straw inspect`, `baseline`, `diff`, and `test` CLI commands.
 - Scenario-suite checks and dependency-free OpenAI and Anthropic request capture wrappers.
+- Vitest context-contract matchers and GitHub Actions annotations.
 
 ### Removed
 
