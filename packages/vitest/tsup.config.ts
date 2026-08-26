@@ -5,5 +5,5 @@ export default defineConfig({
   format: ['esm'],
   dts: true,
   clean: true,
-  external: ['vitest', '@straw-ai/sdk'],
+  external: ['vitest', '@straw-ai/context'],
 })

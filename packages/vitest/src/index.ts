@@ -11,7 +11,7 @@ import {
   type ContextBaseline,
   type ContextContract,
   type ContextRequest,
-} from '@straw-ai/sdk'
+} from '@straw-ai/context'
 import { expect } from 'vitest'
 
 export interface ContextContractMatcherOptions {

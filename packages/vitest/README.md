@@ -3,7 +3,7 @@
 Vitest assertions for assembled LLM context.
 
 ```ts
-import { adaptOpenAIRequest } from '@straw-ai/sdk'
+import { adaptOpenAIRequest } from '@straw-ai/context'
 import '@straw-ai/vitest'
 
 it('keeps the read-only support context safe and bounded', async () => {

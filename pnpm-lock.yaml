@@ -44,7 +44,7 @@ importers:
 
   packages/cli:
     dependencies:
-      '@straw-ai/sdk':
+      '@straw-ai/context':
         specifier: workspace:*
         version: link:../sdk
     devDependencies:
@@ -94,7 +94,7 @@ importers:
 
   packages/vitest:
     dependencies:
-      '@straw-ai/sdk':
+      '@straw-ai/context':
         specifier: workspace:*
         version: link:../sdk
     devDependencies:

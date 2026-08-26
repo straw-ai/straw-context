@@ -1,5 +1,5 @@
 {
-  "name": "@straw-ai/sdk",
+  "name": "@straw-ai/context",
   "version": "0.0.1",
   "description": "Static analysis and regression testing for assembled LLM requests",
   "keywords": [

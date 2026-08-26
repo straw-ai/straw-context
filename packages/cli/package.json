@@ -17,12 +17,12 @@
   },
   "scripts": {
     "build": "tsup && tsc --noEmit",
-    "test": "pnpm --filter @straw-ai/sdk build && vitest run",
+    "test": "vitest run",
     "lint": "oxlint",
     "dev": "tsx src/index.ts"
   },
   "dependencies": {
-    "@straw-ai/sdk": "workspace:*"
+    "@straw-ai/context": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^12.20.55",

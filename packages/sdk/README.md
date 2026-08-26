@@ -1,12 +1,8 @@
-# `@straw-ai/sdk`
+# `@straw-ai/context`
 
 Composable static analysis and regression testing for assembled LLM requests.
 
-## Install
-
-```bash
-npm install @straw-ai/sdk
-```
+> **Status:** this package is in early development and is not published to npm yet.
 
 ## Analysis pipeline
 
@@ -21,7 +17,7 @@ import {
   TokenCompositionAnalyzer,
   TokenizerRegistry,
   ToolSchemaAnalyzer,
-} from '@straw-ai/sdk'
+} from '@straw-ai/context'
 
 const request = adaptAnthropicRequest({
   model: 'claude-model',
@@ -81,7 +77,7 @@ Sensitive-data analysis is not broad PII classification. It performs determinist
 Wrap an existing provider client to observe the exact payload before it is sent:
 
 ```ts
-import { captureOpenAIClient } from '@straw-ai/sdk'
+import { captureOpenAIClient } from '@straw-ai/context'
 
 const captured = []
 const client = captureOpenAIClient(openai, {
@@ -100,7 +96,7 @@ Wrappers do not write files, call a model, or import provider SDKs. Applications
 Use the official handler to enforce a contract in memory:
 
 ```ts
-import { captureOpenAIClient, createContractCaptureHandler } from '@straw-ai/sdk'
+import { captureOpenAIClient, createContractCaptureHandler } from '@straw-ai/context'
 
 const client = captureOpenAIClient(openai, {
   onCapture: createContractCaptureHandler({
@@ -137,7 +133,7 @@ The writer persists exactly the sanitizer's return value. It does not claim to i
 ## Baselines and diffs
 
 ```ts
-import { createContextBaseline, diffContextManifest } from '@straw-ai/sdk'
+import { createContextBaseline, diffContextManifest } from '@straw-ai/context'
 
 const baseline = createContextBaseline(manifest)
 const diff = diffContextManifest(baseline, nextManifest)
@@ -150,7 +146,7 @@ Baselines omit raw component values but retain metrics and non-cryptographic fin
 Use `parseContextContract` for JSON configuration and `evaluateContextContract` for CI enforcement.
 
 ```ts
-import { evaluateContextContract, parseContextContract } from '@straw-ai/sdk'
+import { evaluateContextContract, parseContextContract } from '@straw-ai/context'
 
 const contract = parseContextContract({
   name: 'support-agent',

@@ -1,7 +1,7 @@
 import { promises as fs } from 'fs'
 import { basename, resolve } from 'path'
 
-import { type CaptureFixtureWriter, type CapturedRequest } from '@straw-ai/sdk'
+import { type CaptureFixtureWriter, type CapturedRequest } from '@straw-ai/context'
 
 export interface JsonFixtureWriterOptions {
   readonly directory: string

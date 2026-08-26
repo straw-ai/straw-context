@@ -25,7 +25,7 @@ import {
   type ContextContract,
   type ContextContractResult,
   type ContextManifest,
-} from '@straw-ai/sdk'
+} from '@straw-ai/context'
 
 type AdapterName = 'openai' | 'anthropic' | 'message'
 

@@ -1,6 +1,8 @@
-# Straw
+# Straw Context
 
 Static analysis and regression testing for the request your application sends to an LLM.
+
+> **Status:** early development. The packages documented here are not published to npm yet.
 
 Straw turns an assembled OpenAI, Anthropic, or provider-neutral request into a stable manifest. It shows where the context window goes, detects deterministic input problems, and lets CI compare the request against a reviewed baseline and contract.
 
@@ -28,7 +30,7 @@ Straw does not judge prompt quality, predict answer quality, or provide broad PI
 
 ## Packages
 
-- `@straw-ai/sdk`: adapters, analyzers, manifests, baselines, contracts, reporters, and tokenizer extension points.
+- `@straw-ai/context`: adapters, analyzers, manifests, baselines, contracts, reporters, and tokenizer extension points.
 - `@straw-ai/cli`: `inspect`, `baseline`, `diff`, and `test` commands.
 - `@straw-ai/vitest`: async context-contract matchers for application tests.
 
@@ -117,7 +119,7 @@ For native GitHub Actions annotations:
 For direct integration tests, install `@straw-ai/vitest` and assert against the assembled request:
 
 ```ts
-import { adaptOpenAIRequest } from '@straw-ai/sdk'
+import { adaptOpenAIRequest } from '@straw-ai/context'
 import '@straw-ai/vitest'
 
 it('keeps read-only context within policy', async () => {
@@ -133,7 +135,7 @@ it('keeps read-only context within policy', async () => {
 Provider capture wrappers can collect the real payloads created by integration tests:
 
 ```ts
-import { captureOpenAIClient } from '@straw-ai/sdk'
+import { captureOpenAIClient } from '@straw-ai/context'
 
 const client = captureOpenAIClient(openai, {
   onCapture: ({ request }) => saveDevelopmentFixture(request.raw),
@@ -172,7 +174,7 @@ import {
   TokenCompositionAnalyzer,
   TokenizerRegistry,
   ToolSchemaAnalyzer,
-} from '@straw-ai/sdk'
+} from '@straw-ai/context'
 
 const request = adaptOpenAIRequest({
   model: 'gpt-4.1-mini',

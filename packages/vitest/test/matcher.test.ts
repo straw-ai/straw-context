@@ -1,4 +1,4 @@
-import { adaptOpenAIRequest } from '@straw-ai/sdk'
+import { adaptOpenAIRequest } from '@straw-ai/context'
 import { describe, expect, it } from 'vitest'
 
 import '../src/index.js'
