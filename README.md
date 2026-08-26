@@ -2,7 +2,9 @@
 
 Static analysis and regression testing for the request your application sends to an LLM.
 
-> **Status:** early development. The packages documented here are not published to npm yet.
+## Technical Preview
+
+Straw Context is under active development and is not published to npm yet. APIs, contract formats, baselines, and package boundaries may change before the first public release. It is ready for evaluation with controlled development fixtures, but it should not yet be treated as a production security boundary.
 
 Start with the runnable [`examples/support-agent`](examples/support-agent/README.md) walkthrough. It covers application request assembly, Vitest assertions, provider capture, sanitized fixtures, scenario checks, and a deliberate failing regression without requiring an API key.
 
@@ -198,7 +200,7 @@ const manifest = await createContextManifest(
 )
 ```
 
-See [`packages/sdk/README.md`](packages/sdk/README.md) for SDK extension points.
+See [`packages/context/README.md`](packages/context/README.md) for SDK extension points.
 
 ## Development
 
