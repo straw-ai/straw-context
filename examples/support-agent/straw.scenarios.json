@@ -1,0 +1,25 @@
+{
+  "scenarios": [
+    {
+      "name": "support-read-only",
+      "request": "fixtures/support-read-only.json",
+      "adapter": "openai",
+      "contract": {
+        "tokens": {
+          "maxComponentTokens": 500,
+          "byKind": { "tool-definition": 250 }
+        },
+        "tools": {
+          "maxCount": 3,
+          "required": ["get_ticket"],
+          "forbidden": ["delete_account", "issue_refund"]
+        },
+        "duplication": { "maxDuplicateComponents": 0 },
+        "sensitiveData": {
+          "forbiddenPaths": ["**.ssn", "**.authorization"],
+          "detectSecrets": true
+        }
+      }
+    }
+  ]
+}

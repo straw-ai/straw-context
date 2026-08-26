@@ -42,11 +42,39 @@ importers:
         specifier: ^2.1.2
         version: 2.1.9(@types/node@12.20.55)(lightningcss@1.32.0)
 
+  examples/support-agent:
+    dependencies:
+      '@straw-ai/cli':
+        specifier: workspace:*
+        version: link:../../packages/cli
+      '@straw-ai/context':
+        specifier: workspace:*
+        version: link:../../packages/context
+      '@straw-ai/vitest':
+        specifier: workspace:*
+        version: link:../../packages/vitest
+    devDependencies:
+      '@types/node':
+        specifier: ^12.20.55
+        version: 12.20.55
+      oxlint:
+        specifier: ^1.58.0
+        version: 1.58.0
+      tsx:
+        specifier: ^4.19.1
+        version: 4.21.0
+      typescript:
+        specifier: ~5.8.3
+        version: 5.8.3
+      vitest:
+        specifier: ^2.1.2
+        version: 2.1.9(@types/node@12.20.55)(lightningcss@1.32.0)
+
   packages/cli:
     dependencies:
-      '@straw-ai/sdk':
+      '@straw-ai/context':
         specifier: workspace:*
-        version: link:../sdk
+        version: link:../context
     devDependencies:
       '@types/node':
         specifier: ^12.20.55
@@ -67,7 +95,7 @@ importers:
         specifier: ^2.1.2
         version: 2.1.9(@types/node@12.20.55)(lightningcss@1.32.0)
 
-  packages/sdk:
+  packages/context:
     dependencies:
       js-tiktoken:
         specifier: ^1.0.21
@@ -85,6 +113,25 @@ importers:
       tsx:
         specifier: ^4.19.1
         version: 4.21.0
+      typescript:
+        specifier: ~5.8.3
+        version: 5.8.3
+      vitest:
+        specifier: ^2.1.2
+        version: 2.1.9(@types/node@12.20.55)(lightningcss@1.32.0)
+
+  packages/vitest:
+    dependencies:
+      '@straw-ai/context':
+        specifier: workspace:*
+        version: link:../context
+    devDependencies:
+      oxlint:
+        specifier: ^1.58.0
+        version: 1.58.0
+      tsup:
+        specifier: ^8.5.1
+        version: 8.5.1(jiti@2.6.1)(postcss@8.5.8)(tsx@4.21.0)(typescript@5.8.3)(yaml@2.8.3)
       typescript:
         specifier: ~5.8.3
         version: 5.8.3

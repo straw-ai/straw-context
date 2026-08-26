@@ -104,3 +104,17 @@ export {
   OpenAITokenizer,
   type OpenAITokenizerOptions,
 } from './infrastructure/tokenizers/OpenAITokenizer.js'
+export {
+  captureAnthropicClient,
+  captureOpenAIClient,
+  type CapturedRequest,
+  type CaptureClientOptions,
+  type RequestCaptureHandler,
+} from './infrastructure/capture/ProviderCapture.js'
+export {
+  ContextContractViolationError,
+  createContractCaptureHandler,
+  type CaptureContractEvaluation,
+  type CaptureFixtureWriter,
+  type ContractCaptureHandlerOptions,
+} from './application/context/CaptureHandler.js'

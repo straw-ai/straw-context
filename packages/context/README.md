@@ -1,12 +1,8 @@
-# `@straw-ai/sdk`
+# `@straw-ai/context`
 
 Composable static analysis and regression testing for assembled LLM requests.
 
-## Install
-
-```bash
-npm install @straw-ai/sdk
-```
+> **Status:** this package is in early development and is not published to npm yet.
 
 ## Analysis pipeline
 
@@ -21,7 +17,7 @@ import {
   TokenCompositionAnalyzer,
   TokenizerRegistry,
   ToolSchemaAnalyzer,
-} from '@straw-ai/sdk'
+} from '@straw-ai/context'
 
 const request = adaptAnthropicRequest({
   model: 'claude-model',
@@ -76,10 +72,68 @@ Adapters annotate existing values; they do not rewrite the raw request.
 
 Sensitive-data analysis is not broad PII classification. It performs deterministic local checks and never includes matched secret values in findings.
 
+## Capture real integration-test requests
+
+Wrap an existing provider client to observe the exact payload before it is sent:
+
+```ts
+import { captureOpenAIClient } from '@straw-ai/context'
+
+const captured = []
+const client = captureOpenAIClient(openai, {
+  onCapture: ({ operation, request }) => {
+    captured.push({ operation, raw: request.raw })
+  },
+})
+
+await client.responses.create(yourNormalRequest)
+```
+
+`captureAnthropicClient` wraps `messages.create`; `captureOpenAIClient` wraps both `responses.create` and `chat.completions.create`. The callback runs before the provider call. If it throws or rejects—such as when an inline contract fails—the provider is not called.
+
+Wrappers do not write files, call a model, or import provider SDKs. Applications decide whether to analyze in memory or save sanitized development fixtures. Do not persist production user requests without an explicit data-handling policy.
+
+Use the official handler to enforce a contract in memory:
+
+```ts
+import { captureOpenAIClient, createContractCaptureHandler } from '@straw-ai/context'
+
+const client = captureOpenAIClient(openai, {
+  onCapture: createContractCaptureHandler({
+    contract: {
+      name: 'support-read-only',
+      tokens: { maxComponentTokens: 12000 },
+      tools: { forbidden: ['delete_account'] },
+    },
+  }),
+})
+```
+
+Contract violations reject before the provider call. Set `failOnViolation: false` to observe results without blocking and use `onResult` to receive the manifest and evaluation. Pass `baseline` (or a baseline resolver callback) when enforcing regression or structural rules.
+
+For explicit development fixture output, combine the handler with the Node writer from `@straw-ai/cli/capture`. A sanitizer is mandatory:
+
+```ts
+import { createJsonFixtureWriter } from '@straw-ai/cli/capture'
+
+const fixture = createJsonFixtureWriter({
+  directory: './test/fixtures',
+  fileName: () => 'support-read-only.json',
+  sanitize: ({ request }) => ({
+    ...(request.raw as object),
+    input: '[representative test input]',
+  }),
+})
+
+const onCapture = createContractCaptureHandler({ contract, fixture })
+```
+
+The writer persists exactly the sanitizer's return value. It does not claim to infer which application fields are safe.
+
 ## Baselines and diffs
 
 ```ts
-import { createContextBaseline, diffContextManifest } from '@straw-ai/sdk'
+import { createContextBaseline, diffContextManifest } from '@straw-ai/context'
 
 const baseline = createContextBaseline(manifest)
 const diff = diffContextManifest(baseline, nextManifest)
@@ -92,7 +146,7 @@ Baselines omit raw component values but retain metrics and non-cryptographic fin
 Use `parseContextContract` for JSON configuration and `evaluateContextContract` for CI enforcement.
 
 ```ts
-import { evaluateContextContract, parseContextContract } from '@straw-ai/sdk'
+import { evaluateContextContract, parseContextContract } from '@straw-ai/context'
 
 const contract = parseContextContract({
   name: 'support-agent',

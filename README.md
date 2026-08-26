@@ -1,6 +1,12 @@
-# Straw
+# Straw Context
 
 Static analysis and regression testing for the request your application sends to an LLM.
+
+## Technical Preview
+
+Straw Context is under active development and is not published to npm yet. APIs, contract formats, baselines, and package boundaries may change before the first public release. It is ready for evaluation with controlled development fixtures, but it should not yet be treated as a production security boundary.
+
+Start with the runnable [`examples/support-agent`](examples/support-agent/README.md) walkthrough. It covers application request assembly, Vitest assertions, provider capture, sanitized fixtures, scenario checks, and a deliberate failing regression without requiring an API key.
 
 Straw turns an assembled OpenAI, Anthropic, or provider-neutral request into a stable manifest. It shows where the context window goes, detects deterministic input problems, and lets CI compare the request against a reviewed baseline and contract.
 
@@ -28,8 +34,9 @@ Straw does not judge prompt quality, predict answer quality, or provide broad PI
 
 ## Packages
 
-- `@straw-ai/sdk`: adapters, analyzers, manifests, baselines, contracts, reporters, and tokenizer extension points.
+- `@straw-ai/context`: adapters, analyzers, manifests, baselines, contracts, reporters, and tokenizer extension points.
 - `@straw-ai/cli`: `inspect`, `baseline`, `diff`, and `test` commands.
+- `@straw-ai/vitest`: async context-contract matchers for application tests.
 
 ## CLI quick start
 
@@ -41,6 +48,7 @@ node packages/cli/dist/index.js inspect request.json
 node packages/cli/dist/index.js baseline request.json --output context.baseline.json
 node packages/cli/dist/index.js diff context.baseline.json request.json
 node packages/cli/dist/index.js test request.json --contract context.contract.json --baseline context.baseline.json
+node packages/cli/dist/index.js check straw.scenarios.json
 ```
 
 OpenAI is the default adapter. Other request shapes are explicit:
@@ -82,6 +90,66 @@ straw inspect request.json --adapter message
 
 `straw test` exits with status `1` on failure. Regression and structural rules require `--baseline`.
 
+## Scenario suites
+
+Use representative development fixtures to enforce stable invariants across application flows:
+
+```json
+{
+  "scenarios": [
+    {
+      "name": "support-read-only",
+      "request": "fixtures/support-request.json",
+      "adapter": "openai",
+      "contract": {
+        "tokens": { "maxComponentTokens": 12000 },
+        "tools": { "maxCount": 10, "forbidden": ["delete_account"] },
+        "sensitiveData": { "forbiddenPaths": ["**.ssn"] }
+      }
+    }
+  ]
+}
+```
+
+Paths are resolved relative to the suite file. Each scenario may also reference a `baseline`; use that only for stable fixtures or components. `straw check` runs every scenario and returns one CI result.
+
+For native GitHub Actions annotations:
+
+```yaml
+- name: Check LLM context scenarios
+  run: straw check straw.scenarios.json --github
+```
+
+For direct integration tests, install `@straw-ai/vitest` and assert against the assembled request:
+
+```ts
+import { adaptOpenAIRequest } from '@straw-ai/context'
+import '@straw-ai/vitest'
+
+it('keeps read-only context within policy', async () => {
+  const request = adaptOpenAIRequest(buildSupportRequest())
+  await expect(request).toMatchContextContract({
+    name: 'support-read-only',
+    tokens: { maxComponentTokens: 12000 },
+    tools: { forbidden: ['delete_account'] },
+  })
+})
+```
+
+Provider capture wrappers can collect the real payloads created by integration tests:
+
+```ts
+import { captureOpenAIClient } from '@straw-ai/context'
+
+const client = captureOpenAIClient(openai, {
+  onCapture: ({ request }) => saveDevelopmentFixture(request.raw),
+})
+
+await client.responses.create(yourNormalRequest)
+```
+
+Capture happens before the provider call and supports OpenAI Responses, OpenAI Chat Completions, and Anthropic Messages. Straw does not automatically persist captured data; fixture storage must be an explicit application choice.
+
 ## Baseline privacy
 
 Baselines do not store raw prompts, messages, schemas, or detected secret values. They contain metrics plus deterministic content and structure fingerprints.
@@ -110,7 +178,7 @@ import {
   TokenCompositionAnalyzer,
   TokenizerRegistry,
   ToolSchemaAnalyzer,
-} from '@straw-ai/sdk'
+} from '@straw-ai/context'
 
 const request = adaptOpenAIRequest({
   model: 'gpt-4.1-mini',
@@ -132,7 +200,7 @@ const manifest = await createContextManifest(
 )
 ```
 
-See [`packages/sdk/README.md`](packages/sdk/README.md) for SDK extension points.
+See [`packages/context/README.md`](packages/context/README.md) for SDK extension points.
 
 ## Development
 
