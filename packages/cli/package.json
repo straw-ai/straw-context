@@ -12,8 +12,14 @@
   ],
   "type": "module",
   "exports": {
-    ".": "./dist/index.js",
-    "./capture": "./dist/capture.js"
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./capture": {
+      "types": "./dist/capture.d.ts",
+      "import": "./dist/capture.js"
+    }
   },
   "scripts": {
     "build": "tsup && tsc --noEmit",

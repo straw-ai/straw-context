@@ -1,0 +1,21 @@
+{
+  "model": "gpt-4o",
+  "instructions": "Answer support questions using read-only tools. Never modify customer data.",
+  "tools": [
+    {
+      "type": "function",
+      "name": "get_ticket",
+      "description": "Retrieve one support ticket by identifier.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": ["id"]
+      }
+    }
+  ],
+  "input": "Summarize support ticket TKT-123."
+}

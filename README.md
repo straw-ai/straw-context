@@ -4,6 +4,8 @@ Static analysis and regression testing for the request your application sends to
 
 > **Status:** early development. The packages documented here are not published to npm yet.
 
+Start with the runnable [`examples/support-agent`](examples/support-agent/README.md) walkthrough. It covers application request assembly, Vitest assertions, provider capture, sanitized fixtures, scenario checks, and a deliberate failing regression without requiring an API key.
+
 Straw turns an assembled OpenAI, Anthropic, or provider-neutral request into a stable manifest. It shows where the context window goes, detects deterministic input problems, and lets CI compare the request against a reviewed baseline and contract.
 
 ```text
